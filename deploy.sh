@@ -16,6 +16,6 @@ fi
 
 git add -A
 git commit -m "$msg"
-git push origin main
+git push origin master
 echo ""
 echo "✓ Pushed. SiteGround deploy running in the background."
