@@ -21,7 +21,7 @@ $view = $_GET['view'] ?? '';
 
 <body>
   <div id="app">
-    <div class="flex items-center justify-center h-screen text-lg text-[#909090]">Loading…</div>
+    <div class="flex items-center justify-center h-screen text-lg text-[#fff]">Loading…</div>
   </div>
 
   <!-- Modal overlay -->
