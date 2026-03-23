@@ -1,0 +1,34 @@
+name: Deploy to SiteGround
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Add SiteGround to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p 18765 ssh.abstaging.space >> ~/.ssh/known_hosts
+
+      - name: Deploy via rsync
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SITEGROUND_SSH_KEY }}
+        run: |
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p 18765" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'config.php' \
+            --exclude 'vendor/' \
+            --exclude 'node_modules/' \
+            --exclude 'surveys/' \
+            ./ u3263-ryza4qha3dqt@ssh.abstaging.space:~/survey.abstaging.space/public_html/
