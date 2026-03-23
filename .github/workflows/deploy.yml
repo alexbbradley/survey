@@ -2,33 +2,30 @@ name: Deploy to SiteGround
 
 on:
   push:
-    branches: [master]
+    branches: [ "master" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Add SiteGround to known hosts
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SITEGROUND_SSH_KEY }}
+
+      - name: Add SiteGround to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p 18765 ssh.abstaging.space >> ~/.ssh/known_hosts
 
-      - name: Deploy via rsync
+      - name: Deploy by pushing to SiteGround deploy repo
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SITEGROUND_SSH_KEY }}
+          SITEGROUND_DEPLOY_URL: ssh://u3263-ryza4qha3dqt@ssh.abstaging.space:18765/home/customer/repos/survey.git
         run: |
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          rsync -az --delete \
-            -e "ssh -i ~/.ssh/deploy_key -p 18765" \
-            --exclude '.git' \
-            --exclude '.github' \
-            --exclude 'config.php' \
-            --exclude 'vendor/' \
-            --exclude 'node_modules/' \
-            --exclude 'surveys/' \
-            ./ u3263-ryza4qha3dqt@ssh.abstaging.space:~/survey.abstaging.space/public_html/
+          git remote add siteground "$SITEGROUND_DEPLOY_URL" || true
+          git push siteground HEAD:master --force
