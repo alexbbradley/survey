@@ -1,0 +1,27 @@
+# Dependencies / generated folders
+node_modules/
+vendor/
+
+# Build output
+dist/
+
+# LLM/agent cache folders
+.claude/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Secrets / local config
+.env
+*.env
+config.php 
+config.local.php
+
+# Logs
+*.log
+
+
+
