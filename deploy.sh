@@ -2,7 +2,7 @@
 set -e
 
 echo "→ Building..."
-npm run build
+npx webpack --mode production
 
 echo ""
 git status

@@ -2,8 +2,6 @@
 node_modules/
 vendor/
 
-# Build output
-dist/
 
 # LLM/agent cache folders
 .claude/
