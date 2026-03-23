@@ -36,11 +36,11 @@ module.exports = (env, argv) => {
       allowedHosts: 'all',
       headers: { 'Access-Control-Allow-Origin': '*' },
       devMiddleware: {
-        publicPath: '/gantt/',
+        publicPath: '/survey/',
       },
       proxy: [
         {
-          context:      ['/gantt/'],
+          context:      ['/survey/'],
           target:       'http://localhost',
           changeOrigin: true,
         },

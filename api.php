@@ -1,6 +1,6 @@
 <?php
 /**
- * api.php — all API endpoints, called via fetch() from gantt.js
+ * api.php — all API endpoints, called via fetch() from the survey SPA
  * Usage: api.php?action=<action>  (POST body is JSON)
  */
 require_once __DIR__ . '/includes/functions.php';
@@ -40,7 +40,6 @@ try {
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
-            // Always run password_verify (even on no-user) to prevent timing attacks
             $hash = $user ? $user['password_hash'] : '$2y$10$invalidhashfortimingnobodycanloginwiththis';
             $ok   = password_verify($password, $hash) && $user;
 
@@ -91,15 +90,12 @@ try {
                 break;
             }
 
-            // Rate-limit via brute-force mechanism (same IP window)
             $ip = getClientIP();
             $bf = getBruteForceStatus($ip);
             if ($bf['blocked']) {
-                // Still return 200 to prevent enumeration, but don't send email
                 jsonResponse(['ok' => true, 'message' => 'If that email is registered, a reset link has been sent.']);
                 break;
             }
-            // Record this as an attempt so the IP can be rate-limited
             recordFailedAttempt($ip, $email);
 
             $db   = getDB();
@@ -107,7 +103,6 @@ try {
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
-            // Always return the same response (prevents email enumeration)
             if ($user) {
                 $token = generateResetToken((int)$user['id'], 1);
                 $link  = SITE_URL . '/reset-password.php?token=' . urlencode($token);
@@ -115,7 +110,7 @@ try {
                     "<p>We received a request to reset the password for <strong>" . htmlspecialchars($email) . "</strong>.</p>
                      <p><a class='btn' href='" . htmlspecialchars($link) . "'>Reset Password</a></p>
                      <p>This link expires in <strong>1 hour</strong>. If you did not request a reset, you can safely ignore this email.</p>");
-                $mailResult = sendMail($email, '', 'Reset your Gantt password', $html);
+                $mailResult = sendMail($email, '', 'Reset your ' . APP_NAME . ' password', $html);
                 if (!$mailResult['ok']) {
                     error_log('forgot_password mail failed for ' . $email . ': ' . $mailResult['error']);
                 }
@@ -129,7 +124,6 @@ try {
             $token    = trim($data['token'] ?? '');
             $password = $data['password'] ?? '';
 
-            // Validate token format (64 hex chars)
             if (strlen($token) !== 64 || !ctype_xdigit($token)) {
                 jsonResponse(['error' => 'Invalid reset link.'], 400);
                 break;
@@ -187,32 +181,27 @@ try {
             }
 
             try {
-                // Use an unguessable placeholder hash so the account can't be used until the user sets a password
                 $placeholder = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
                 $db   = getDB();
                 $stmt = $db->prepare('INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)');
                 $stmt->execute([$email, $placeholder, $isAdminU]);
                 $newId = (int)$db->lastInsertId();
 
-                // Generate a 24-hour setup link
                 $token = generateResetToken($newId, 24);
                 $link  = SITE_URL . '/reset-password.php?token=' . urlencode($token);
 
-                // Flush the response to the browser immediately — don't make the
-                // admin wait for the SMTP connection attempt.
                 flushJsonResponse([
                     'ok'         => true,
                     'user'       => ['id' => $newId, 'email' => $email, 'is_admin' => $isAdminU],
                     'setup_link' => $link,
                 ]);
 
-                // Attempt email in the background (browser already has the response)
-                $html = emailTemplate('Your Gantt account is ready',
-                    "<p>An account has been created for you on Gantt.</p>
+                $html = emailTemplate('Your ' . APP_NAME . ' account is ready',
+                    "<p>An account has been created for you on " . htmlspecialchars(APP_NAME) . ".</p>
                      <p>Click the button below to set your password and get started:</p>
                      <p><a class='btn' href='" . htmlspecialchars($link) . "'>Set My Password</a></p>
                      <p>This link expires in <strong>24 hours</strong>.</p>");
-                $mailResult = sendMail($email, '', 'Your Gantt account is ready', $html);
+                $mailResult = sendMail($email, '', 'Your ' . APP_NAME . ' account is ready', $html);
                 if (!$mailResult['ok']) {
                     error_log('create_user mail failed for ' . $email . ': ' . $mailResult['error']);
                 }
@@ -243,7 +232,6 @@ try {
             $targetId = (int)($data['user_id'] ?? 0);
             $password = $data['password'] ?? '';
 
-            // Admins can change anyone's password; others can only change their own
             if (!isAdmin() && $targetId !== (int)$_SESSION['user_id']) {
                 jsonResponse(['error' => 'Unauthorized'], 403); break;
             }
@@ -255,328 +243,249 @@ try {
             jsonResponse(['ok' => true]);
             break;
 
-        // ── Charts ──────────────────────────────────────────────────
-        case 'list_charts':
-            $db = getDB();
-            if (isAdmin()) {
-                $rows = $db->query('SELECT id, slug, title, view_start, view_end, view_mode, created_at FROM charts WHERE deleted_at IS NULL ORDER BY created_at DESC')->fetchAll();
-            } else {
-                $stmt = $db->prepare('SELECT id, slug, title, view_start, view_end, view_mode, created_at FROM charts WHERE deleted_at IS NULL AND user_id = ? ORDER BY created_at DESC');
-                $stmt->execute([(int)($_SESSION['user_id'] ?? 0)]);
-                $rows = $stmt->fetchAll();
-            }
-            jsonResponse($rows);
+        // ── Survey — public endpoints ────────────────────────────────
+
+        case 'get_survey':
+            $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $survey = loadSurvey($slug);
+            if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
+            jsonResponse(sanitizeSurveyForClient($survey));
             break;
 
-        case 'get_chart':
-            $slug = $_GET['slug'] ?? '';
-            if (!$slug) { jsonResponse(['error' => 'Missing slug'], 400); break; }
-
-            $db = getDB();
-            $stmt = $db->prepare('SELECT * FROM charts WHERE slug = ?');
-            $stmt->execute([$slug]);
-            $chart = $stmt->fetch();
-
-            if (!$chart) { jsonResponse(['error' => 'Chart not found'], 404); break; }
-            jsonResponse($chart);
-            break;
-
-        case 'create_chart':
-            requireLogin();
-            $data = getInput();
-            $title      = trim($data['title'] ?? '');
-            $viewStart  = sanitizeDate($data['view_start'] ?? '');
-            $viewEnd    = sanitizeDate($data['view_end'] ?? '');
-            $viewMode   = in_array($data['view_mode'] ?? '', ['day','week']) ? $data['view_mode'] : 'week';
-            $customSlug = trim($data['slug'] ?? '');
-
-            if (!$title || !$viewStart || !$viewEnd) {
-                jsonResponse(['error' => 'Title, start date and end date are required'], 400); break;
-            }
-            if ($viewStart >= $viewEnd) {
-                jsonResponse(['error' => 'Start date must be before end date'], 400); break;
-            }
-
-            if ($customSlug !== '') {
-                if (!preg_match('/^[a-z0-9][a-z0-9\-]{1,58}[a-z0-9]$/', $customSlug) && !preg_match('/^[a-z0-9]{2,60}$/', $customSlug)) {
-                    jsonResponse(['error' => 'URL slug may only contain lowercase letters, numbers, and hyphens (2–60 characters)'], 400); break;
-                }
-                $db = getDB();
-                $exists = $db->prepare('SELECT id FROM charts WHERE slug = ?');
-                $exists->execute([$customSlug]);
-                if ($exists->fetch()) {
-                    jsonResponse(['error' => 'That URL slug is already taken'], 409); break;
-                }
-                $slug = $customSlug;
-            } else {
-                $db = getDB();
-                $slug = getUniqueSlug();
-            }
-
-            $stmt = $db->prepare('INSERT INTO charts (user_id, slug, title, view_start, view_end, view_mode) VALUES (?,?,?,?,?,?)');
-            $stmt->execute([(int)$_SESSION['user_id'], $slug, $title, $viewStart, $viewEnd, $viewMode]);
-            $id = (int)$db->lastInsertId();
-
-            jsonResponse(['ok' => true, 'id' => $id, 'slug' => $slug]);
-            break;
-
-        case 'update_chart':
-            requireLogin();
-            $data = getInput();
-            $id        = (int)($data['id'] ?? 0);
-            $title     = trim($data['title'] ?? '');
-            $viewStart = sanitizeDate($data['view_start'] ?? '');
-            $viewEnd   = sanitizeDate($data['view_end'] ?? '');
-            $viewMode  = in_array($data['view_mode'] ?? '', ['day','week']) ? $data['view_mode'] : 'week';
-
-            if (!$id || !$title || !$viewStart || !$viewEnd) {
-                jsonResponse(['error' => 'Missing required fields'], 400); break;
-            }
-            if ($viewStart >= $viewEnd) {
-                jsonResponse(['error' => 'Start date must be before end date'], 400); break;
-            }
-
-            $db = getDB();
-            $own = $db->prepare('SELECT user_id FROM charts WHERE id = ?');
-            $own->execute([$id]);
-            $ownerRow = $own->fetch();
-            if (!$ownerRow || (!isAdmin() && (int)$ownerRow['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
-            }
-            $db->prepare('UPDATE charts SET title=?, view_start=?, view_end=?, view_mode=? WHERE id=?')->execute([$title, $viewStart, $viewEnd, $viewMode, $id]);
-            jsonResponse(['ok' => true]);
-            break;
-
-        case 'rename_chart':
-            requireLogin();
+        case 'start_session':
             $data  = getInput();
-            $id    = (int)($data['id'] ?? 0);
-            $title = trim($data['title'] ?? '');
-            $slug  = trim($data['slug'] ?? '');
-            if (!$id || !$title || !$slug) { jsonResponse(['error' => 'Missing required fields'], 400); break; }
-            if (!preg_match('/^[a-z0-9][a-z0-9\-]{0,58}[a-z0-9]$/', $slug) && !preg_match('/^[a-z0-9]{2,60}$/', $slug)) {
-                jsonResponse(['error' => 'Slug may only contain lowercase letters, numbers, and hyphens (2–60 chars)'], 400); break;
-            }
+            $slug  = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            $token = trim($data['token'] ?? '');
+
+            $survey = loadSurvey($slug);
+            if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
 
             $db = getDB();
-            $own = $db->prepare('SELECT user_id FROM charts WHERE id = ?');
-            $own->execute([$id]);
-            $ownerRow = $own->fetch();
-            if (!$ownerRow || (!isAdmin() && (int)$ownerRow['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
+
+            // Try to resume an existing session by token
+            if (strlen($token) === 64 && ctype_xdigit($token)) {
+                $stmt = $db->prepare(
+                    'SELECT id, current_question, completed_at
+                     FROM survey_sessions WHERE session_token = ? AND survey_slug = ?'
+                );
+                $stmt->execute([$token, $slug]);
+                $session = $stmt->fetch();
+
+                if ($session) {
+                    if ($session['completed_at'] !== null) {
+                        jsonResponse([
+                            'error'     => 'already_completed',
+                            'thank_you' => $survey['thank_you'] ?? 'Thank you!',
+                        ], 409);
+                        break;
+                    }
+                    // Resume: load saved answers
+                    $aStmt = $db->prepare(
+                        'SELECT question_key, answer_value FROM survey_answers WHERE session_id = ?'
+                    );
+                    $aStmt->execute([$session['id']]);
+                    $answers = [];
+                    foreach ($aStmt->fetchAll() as $row) {
+                        $answers[$row['question_key']] = $row['answer_value'];
+                    }
+                    jsonResponse([
+                        'token'            => $token,
+                        'current_question' => (int)$session['current_question'],
+                        'answers'          => $answers,
+                    ]);
+                    break;
+                }
+                // Token not found — fall through to create a new session
             }
 
-            // Check slug uniqueness (excluding this chart)
-            $taken = $db->prepare('SELECT id FROM charts WHERE slug = ? AND id != ?');
-            $taken->execute([$slug, $id]);
-            if ($taken->fetch()) { jsonResponse(['error' => 'That URL slug is already taken'], 409); break; }
-
-            $db->prepare('UPDATE charts SET title=?, slug=? WHERE id=?')->execute([$title, $slug, $id]);
-            jsonResponse(['ok' => true, 'slug' => $slug]);
+            // Create a new session
+            $newToken = bin2hex(random_bytes(32));
+            $db->prepare(
+                'INSERT INTO survey_sessions (survey_slug, session_token, user_id, ip_address, user_agent)
+                 VALUES (?, ?, ?, ?, ?)'
+            )->execute([
+                $slug,
+                $newToken,
+                $_SESSION['user_id'] ?? null,
+                getClientIP(),
+                substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
+            ]);
+            jsonResponse(['token' => $newToken, 'current_question' => 0, 'answers' => []]);
             break;
 
-        case 'duplicate_chart':
-            requireLogin();
+        case 'save_answer':
+            $data          = getInput();
+            $token         = trim($data['token'] ?? '');
+            $questionKey   = trim($data['question_key'] ?? '');
+            $answerValue   = $data['answer_value'] ?? '';
+            $questionIndex = (int)($data['question_index'] ?? 0);
+
+            if (strlen($token) !== 64 || !ctype_xdigit($token)) {
+                jsonResponse(['error' => 'Invalid token'], 400); break;
+            }
+            if (!$questionKey || strlen($questionKey) > 100) {
+                jsonResponse(['error' => 'Invalid question_key'], 400); break;
+            }
+
+            $db   = getDB();
+            $stmt = $db->prepare(
+                'SELECT id FROM survey_sessions WHERE session_token = ? AND completed_at IS NULL'
+            );
+            $stmt->execute([$token]);
+            $session = $stmt->fetch();
+            if (!$session) { jsonResponse(['error' => 'Session not found or already completed'], 404); break; }
+
+            $sessionId = (int)$session['id'];
+
+            // Upsert answer
+            $db->prepare(
+                'INSERT INTO survey_answers (session_id, question_key, answer_value)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE answer_value = VALUES(answer_value), answered_at = NOW()'
+            )->execute([$sessionId, $questionKey, (string)$answerValue]);
+
+            // Advance current_question pointer (never regress on Back navigation)
+            $db->prepare(
+                'UPDATE survey_sessions
+                 SET current_question = GREATEST(current_question, ?), updated_at = NOW()
+                 WHERE id = ?'
+            )->execute([$questionIndex + 1, $sessionId]);
+
+            jsonResponse(['ok' => true]);
+            break;
+
+        case 'complete_survey':
+            $data  = getInput();
+            $token = trim($data['token'] ?? '');
+
+            if (strlen($token) !== 64 || !ctype_xdigit($token)) {
+                jsonResponse(['error' => 'Invalid token'], 400); break;
+            }
+
+            $db   = getDB();
+            $stmt = $db->prepare(
+                'UPDATE survey_sessions SET completed_at = NOW(), updated_at = NOW()
+                 WHERE session_token = ? AND completed_at IS NULL'
+            );
+            $stmt->execute([$token]);
+
+            if ($stmt->rowCount() === 0) {
+                jsonResponse(['error' => 'Session not found or already completed'], 404); break;
+            }
+            jsonResponse(['ok' => true]);
+            break;
+
+        // ── Survey — admin endpoints ─────────────────────────────────
+
+        case 'list_surveys':
+            requireAdmin();
+            jsonResponse(discoverSurveys());
+            break;
+
+        case 'get_responses':
+            requireAdmin();
+            $slug   = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $survey = loadSurvey($slug);
+            if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
+
+            $db = getDB();
+            $sessStmt = $db->prepare(
+                'SELECT id, session_token, user_id, ip_address, current_question, completed_at, created_at
+                 FROM survey_sessions WHERE survey_slug = ? ORDER BY created_at DESC'
+            );
+            $sessStmt->execute([$slug]);
+            $rows = $sessStmt->fetchAll();
+
+            if ($rows) {
+                $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
+                $answers = $db->query(
+                    "SELECT session_id, question_key, answer_value FROM survey_answers WHERE session_id IN ($ids)"
+                )->fetchAll();
+                $answerMap = [];
+                foreach ($answers as $a) {
+                    $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
+                }
+                foreach ($rows as &$row) {
+                    $row['answers'] = $answerMap[$row['id']] ?? (object)[];
+                }
+                unset($row);
+            }
+
+            jsonResponse([
+                'questions' => sanitizeSurveyForClient($survey)['questions'],
+                'sessions'  => $rows,
+            ]);
+            break;
+
+        case 'export_csv':
+            requireAdmin();
+            $slug   = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $survey = loadSurvey($slug);
+            if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
+
+            $db = getDB();
+            $sessStmt = $db->prepare(
+                'SELECT id, session_token, ip_address, completed_at, created_at
+                 FROM survey_sessions WHERE survey_slug = ? ORDER BY created_at ASC'
+            );
+            $sessStmt->execute([$slug]);
+            $rows = $sessStmt->fetchAll();
+
+            $ids = $rows ? implode(',', array_map(fn($r) => (int)$r['id'], $rows)) : '0';
+            $answers = $db->query(
+                "SELECT session_id, question_key, answer_value FROM survey_answers WHERE session_id IN ($ids)"
+            )->fetchAll();
+            $answerMap = [];
+            foreach ($answers as $a) {
+                $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
+            }
+
+            $questions = sanitizeSurveyForClient($survey)['questions'];
+            $keys      = array_column($questions, 'key');
+
+            while (ob_get_level()) ob_end_clean();
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $slug . '-responses.csv"');
+            header('Cache-Control: no-cache');
+
+            $fh = fopen('php://output', 'w');
+            fwrite($fh, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+            // Header row
+            $headerRow = ['Session', 'Started', 'Completed', 'IP'];
+            foreach ($questions as $q) { $headerRow[] = $q['label']; }
+            fputcsv($fh, $headerRow);
+
+            foreach ($rows as $row) {
+                $line = [
+                    substr($row['session_token'], 0, 8),
+                    $row['created_at'],
+                    $row['completed_at'] ?? '',
+                    $row['ip_address'],
+                ];
+                foreach ($keys as $key) {
+                    $val     = $answerMap[$row['id']][$key] ?? '';
+                    $decoded = json_decode($val, true);
+                    // Ranking answers stored as JSON array — decode to "A > B > C" format
+                    $line[] = is_array($decoded) ? implode(' > ', $decoded) : $val;
+                }
+                fputcsv($fh, $line);
+            }
+            fclose($fh);
+            exit;
+
+        case 'clear_responses':
+            requireAdmin();
             $data = getInput();
-            $id = (int)($data['id'] ?? 0);
-            if (!$id) { jsonResponse(['error' => 'Missing id'], 400); break; }
+            $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
 
-            $db = getDB();
-            $own = $db->prepare('SELECT * FROM charts WHERE id = ? AND deleted_at IS NULL');
-            $own->execute([$id]);
-            $src = $own->fetch(PDO::FETCH_ASSOC);
-            if (!$src || (!isAdmin() && (int)$src['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
-            }
+            $db   = getDB();
+            $stmt = $db->prepare('DELETE FROM survey_sessions WHERE survey_slug = ?');
+            $stmt->execute([$slug]);
+            $deleted = $stmt->rowCount();
 
-            $newSlug  = getUniqueSlug();
-            $newTitle = 'Copy of ' . $src['title'];
-            $db->prepare('INSERT INTO charts (user_id, slug, title, view_start, view_end, view_mode) VALUES (?,?,?,?,?,?)')
-               ->execute([(int)$_SESSION['user_id'], $newSlug, $newTitle, $src['view_start'], $src['view_end'], $src['view_mode']]);
-            $newId = (int)$db->lastInsertId();
-
-            // Copy all tasks
-            $tasks = $db->prepare('SELECT type, title, note, start_date, end_date, color, sort_order FROM tasks WHERE chart_id = ? ORDER BY sort_order');
-            $tasks->execute([$id]);
-            $ins = $db->prepare('INSERT INTO tasks (chart_id, type, title, note, start_date, end_date, color, sort_order) VALUES (?,?,?,?,?,?,?,?)');
-            foreach ($tasks->fetchAll(PDO::FETCH_ASSOC) as $t) {
-                $ins->execute([$newId, $t['type'], $t['title'], $t['note'], $t['start_date'], $t['end_date'], $t['color'], $t['sort_order']]);
-            }
-
-            $row = $db->prepare('SELECT id, slug, title, view_start, view_end, view_mode FROM charts WHERE id = ?');
-            $row->execute([$newId]);
-            jsonResponse(['ok' => true, 'chart' => $row->fetch(PDO::FETCH_ASSOC)]);
-            break;
-
-        case 'delete_chart':
-            requireLogin();
-            $data = getInput();
-            $id = (int)($data['id'] ?? 0);
-            if (!$id) { jsonResponse(['error' => 'Missing id'], 400); break; }
-
-            $db = getDB();
-            $own = $db->prepare('SELECT user_id FROM charts WHERE id = ?');
-            $own->execute([$id]);
-            $ownerRow = $own->fetch();
-            if (!$ownerRow || (!isAdmin() && (int)$ownerRow['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
-            }
-            $db->prepare('UPDATE charts SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
-            jsonResponse(['ok' => true]);
-            break;
-
-        case 'list_bin':
-            requireLogin();
-            $db = getDB();
-            if (isAdmin()) {
-                $rows = $db->query('SELECT id, slug, title, view_start, view_end, view_mode, deleted_at FROM charts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')->fetchAll();
-            } else {
-                $stmt = $db->prepare('SELECT id, slug, title, view_start, view_end, view_mode, deleted_at FROM charts WHERE deleted_at IS NOT NULL AND user_id = ? ORDER BY deleted_at DESC');
-                $stmt->execute([(int)$_SESSION['user_id']]);
-                $rows = $stmt->fetchAll();
-            }
-            jsonResponse($rows);
-            break;
-
-        case 'restore_chart':
-            requireLogin();
-            $data = getInput();
-            $id = (int)($data['id'] ?? 0);
-            if (!$id) { jsonResponse(['error' => 'Missing id'], 400); break; }
-
-            $db = getDB();
-            $own = $db->prepare('SELECT user_id FROM charts WHERE id = ?');
-            $own->execute([$id]);
-            $ownerRow = $own->fetch();
-            if (!$ownerRow || (!isAdmin() && (int)$ownerRow['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
-            }
-            $db->prepare('UPDATE charts SET deleted_at = NULL WHERE id = ?')->execute([$id]);
-            jsonResponse(['ok' => true]);
-            break;
-
-        case 'purge_chart':
-            requireLogin();
-            $data = getInput();
-            $id = (int)($data['id'] ?? 0);
-            if (!$id) { jsonResponse(['error' => 'Missing id'], 400); break; }
-
-            $db = getDB();
-            $own = $db->prepare('SELECT user_id FROM charts WHERE id = ?');
-            $own->execute([$id]);
-            $ownerRow = $own->fetch();
-            if (!$ownerRow || (!isAdmin() && (int)$ownerRow['user_id'] !== (int)$_SESSION['user_id'])) {
-                jsonResponse(['error' => 'Unauthorized'], 403); break;
-            }
-            $db->prepare('DELETE FROM charts WHERE id = ? AND deleted_at IS NOT NULL')->execute([$id]);
-            jsonResponse(['ok' => true]);
-            break;
-
-        case 'purge_bin':
-            requireLogin();
-            $db = getDB();
-            if (isAdmin()) {
-                $db->exec('DELETE FROM charts WHERE deleted_at IS NOT NULL');
-            } else {
-                $db->prepare('DELETE FROM charts WHERE deleted_at IS NOT NULL AND user_id = ?')->execute([(int)$_SESSION['user_id']]);
-            }
-            jsonResponse(['ok' => true]);
-            break;
-
-        // ── Tasks ───────────────────────────────────────────────────
-        case 'get_tasks':
-            $chartId = (int)($_GET['chart_id'] ?? 0);
-            if (!$chartId) { jsonResponse(['error' => 'Missing chart_id'], 400); break; }
-
-            $db = getDB();
-            $stmt = $db->prepare('SELECT * FROM tasks WHERE chart_id = ? ORDER BY sort_order ASC, id ASC');
-            $stmt->execute([$chartId]);
-            jsonResponse($stmt->fetchAll());
-            break;
-
-        case 'create_task':
-            requireLogin();
-            $data     = getInput();
-            $chartId  = (int)($data['chart_id'] ?? 0);
-            $type     = in_array($data['type'] ?? '', ['task','section','launch']) ? $data['type'] : 'task';
-            $title    = trim($data['title'] ?? '');
-            $note     = trim($data['note'] ?? '');
-            $start    = sanitizeDate($data['start_date'] ?? '');
-            $end      = sanitizeDate($data['end_date'] ?? '');
-            $color    = preg_match('/^#[0-9A-Fa-f]{6}$/', $data['color'] ?? '') ? $data['color'] : '#4A90E2';
-
-            if (!$chartId || !$title) { jsonResponse(['error' => 'chart_id and title required'], 400); break; }
-
-            // Get next sort_order
-            $db = getDB();
-            $max = $db->prepare('SELECT COALESCE(MAX(sort_order),0)+1 FROM tasks WHERE chart_id=?');
-            $max->execute([$chartId]);
-            $order = (int)$max->fetchColumn();
-
-            $stmt = $db->prepare('INSERT INTO tasks (chart_id, type, title, note, start_date, end_date, color, sort_order) VALUES (?,?,?,?,?,?,?,?)');
-            $stmt->execute([$chartId, $type, $title, $note ?: null, $start, $end, $color, $order]);
-            $id = (int)$db->lastInsertId();
-
-            // Return full task
-            $t = $db->prepare('SELECT * FROM tasks WHERE id=?');
-            $t->execute([$id]);
-            jsonResponse(['ok' => true, 'task' => $t->fetch()]);
-            break;
-
-        case 'update_task':
-            requireLogin();
-            $data   = getInput();
-            $id     = (int)($data['id'] ?? 0);
-            $title  = trim($data['title'] ?? '');
-            $note   = trim($data['note'] ?? '');
-            $start  = sanitizeDate($data['start_date'] ?? '');
-            $end    = sanitizeDate($data['end_date'] ?? '');
-            $color  = preg_match('/^#[0-9A-Fa-f]{6}$/', $data['color'] ?? '') ? $data['color'] : null;
-
-            if (!$id || !$title) { jsonResponse(['error' => 'id and title required'], 400); break; }
-
-            $allowed_types = ['task', 'section', 'launch'];
-            $type = in_array($data['type'] ?? '', $allowed_types) ? $data['type'] : null;
-
-            $db = getDB();
-            $fields = 'title=?, note=?, start_date=?, end_date=?';
-            $params = [$title, $note ?: null, $start, $end];
-            if ($color) { $fields .= ', color=?'; $params[] = $color; }
-            if ($type)  { $fields .= ', type=?';  $params[] = $type; }
-            $params[] = $id;
-
-            $db->prepare("UPDATE tasks SET $fields WHERE id=?")->execute($params);
-
-            $t = $db->prepare('SELECT * FROM tasks WHERE id=?');
-            $t->execute([$id]);
-            jsonResponse(['ok' => true, 'task' => $t->fetch()]);
-            break;
-
-        case 'delete_task':
-            requireLogin();
-            $data = getInput();
-            $id = (int)($data['id'] ?? 0);
-            if (!$id) { jsonResponse(['error' => 'Missing id'], 400); break; }
-
-            $db = getDB();
-            $db->prepare('DELETE FROM tasks WHERE id=?')->execute([$id]);
-            jsonResponse(['ok' => true]);
-            break;
-
-        case 'reorder_tasks':
-            requireLogin();
-            $data    = getInput();
-            $chartId = (int)($data['chart_id'] ?? 0);
-            $order   = $data['order'] ?? []; // array of task ids in new order
-
-            if (!$chartId || !is_array($order)) { jsonResponse(['error' => 'Invalid input'], 400); break; }
-
-            $db = getDB();
-            $stmt = $db->prepare('UPDATE tasks SET sort_order=? WHERE id=? AND chart_id=?');
-            foreach ($order as $i => $taskId) {
-                $stmt->execute([$i, (int)$taskId, $chartId]);
-            }
-            jsonResponse(['ok' => true]);
+            jsonResponse(['ok' => true, 'deleted' => $deleted]);
             break;
 
         default:

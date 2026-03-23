@@ -28,14 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
             $pdo->exec("USE `" . DB_NAME . "`");
 
-            // ── users ────────────────────────────────────────────────
+            // ── Drop old Gantt tables (if migrating from Gantt app) ────
+            $pdo->exec("DROP TABLE IF EXISTS tasks");
+            $pdo->exec("DROP TABLE IF EXISTS charts");
+
+            // ── users ─────────────────────────────────────────────────
             $pdo->exec("CREATE TABLE IF NOT EXISTS users (
                 id            INT AUTO_INCREMENT PRIMARY KEY,
                 email         VARCHAR(254) NOT NULL UNIQUE,
                 password_hash VARCHAR(255) NOT NULL,
                 is_admin      TINYINT(1)   NOT NULL DEFAULT 0,
                 created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB");
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
             // Upgrade: rename username → email if the old column still exists
             $hasUsername = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -45,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec("ALTER TABLE users CHANGE username email VARCHAR(254) NOT NULL");
             }
 
-            // Upgrade: add is_admin column if missing (very old installs)
+            // Upgrade: add is_admin column if missing
             $hasIsAdmin = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
                 AND COLUMN_NAME = 'is_admin'")->fetchColumn();
@@ -53,14 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec("ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER password_hash");
             }
 
-            // ── login_attempts ───────────────────────────────────────
+            // ── login_attempts ────────────────────────────────────────
             $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
                 id           INT AUTO_INCREMENT PRIMARY KEY,
                 ip           VARCHAR(45)  NOT NULL,
                 email        VARCHAR(254) NOT NULL DEFAULT '',
                 attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_ip_time (ip, attempted_at)
-            ) ENGINE=InnoDB");
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
             // Upgrade: rename username → email in login_attempts
             $hasUname = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -70,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec("ALTER TABLE login_attempts CHANGE username email VARCHAR(254) NOT NULL DEFAULT ''");
             }
 
-            // ── password_resets ──────────────────────────────────────
+            // ── password_resets ───────────────────────────────────────
             $pdo->exec("CREATE TABLE IF NOT EXISTS password_resets (
                 id         INT AUTO_INCREMENT PRIMARY KEY,
                 user_id    INT          NOT NULL,
@@ -80,55 +84,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 INDEX idx_token (token),
                 INDEX idx_user  (user_id)
-            ) ENGINE=InnoDB");
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-            // ── charts ───────────────────────────────────────────────
-            $pdo->exec("CREATE TABLE IF NOT EXISTS charts (
-                id         INT AUTO_INCREMENT PRIMARY KEY,
-                user_id    INT NULL DEFAULT NULL,
-                slug       VARCHAR(60)  NOT NULL UNIQUE,
-                title      VARCHAR(255) NOT NULL,
-                view_start DATE NOT NULL,
-                view_end   DATE NOT NULL,
-                view_mode  ENUM('day','week') DEFAULT 'week',
-                deleted_at TIMESTAMP NULL DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB");
+            // ── survey_sessions ───────────────────────────────────────
+            $pdo->exec("CREATE TABLE IF NOT EXISTS survey_sessions (
+                id               INT AUTO_INCREMENT PRIMARY KEY,
+                survey_slug      VARCHAR(60)  NOT NULL,
+                session_token    VARCHAR(64)  NOT NULL UNIQUE,
+                user_id          INT          NULL DEFAULT NULL,
+                ip_address       VARCHAR(45)  NOT NULL DEFAULT '',
+                user_agent       TEXT,
+                current_question INT          NOT NULL DEFAULT 0,
+                completed_at     TIMESTAMP    NULL DEFAULT NULL,
+                created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+                updated_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_slug  (survey_slug),
+                INDEX idx_token (session_token),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-            // Upgrade checks for charts
-            $hasDeletedAt = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'charts' AND COLUMN_NAME = 'deleted_at'")->fetchColumn();
-            if (!$hasDeletedAt) {
-                $pdo->exec("ALTER TABLE charts ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL AFTER view_mode");
-            }
-            $hasUserId = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'charts' AND COLUMN_NAME = 'user_id'")->fetchColumn();
-            if (!$hasUserId) {
-                $pdo->exec("ALTER TABLE charts ADD COLUMN user_id INT NULL DEFAULT NULL AFTER id");
-            }
-            $slugLen = (int)$pdo->query("SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'charts' AND COLUMN_NAME = 'slug'")->fetchColumn();
-            if ($slugLen < 60) {
-                $pdo->exec("ALTER TABLE charts MODIFY COLUMN slug VARCHAR(60) NOT NULL");
-            }
+            // ── survey_answers ────────────────────────────────────────
+            $pdo->exec("CREATE TABLE IF NOT EXISTS survey_answers (
+                id            INT AUTO_INCREMENT PRIMARY KEY,
+                session_id    INT          NOT NULL,
+                question_key  VARCHAR(100) NOT NULL,
+                answer_value  MEDIUMTEXT,
+                answered_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_session_question (session_id, question_key),
+                FOREIGN KEY (session_id) REFERENCES survey_sessions(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-            // ── tasks ────────────────────────────────────────────────
-            $pdo->exec("CREATE TABLE IF NOT EXISTS tasks (
-                id         INT AUTO_INCREMENT PRIMARY KEY,
-                chart_id   INT NOT NULL,
-                type       ENUM('task','section','launch') DEFAULT 'task',
-                title      VARCHAR(255) NOT NULL,
-                note       TEXT,
-                start_date DATE,
-                end_date   DATE,
-                color      VARCHAR(7) DEFAULT '#4A90E2',
-                sort_order INT DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (chart_id) REFERENCES charts(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB");
-
-            // ── Admin account ────────────────────────────────────────
+            // ── Admin account ─────────────────────────────────────────
             $hash = password_hash($adminPass, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare("INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, 1)
                 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), is_admin = 1");
@@ -147,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gantt — Install</title>
+<title>Survey App — Install</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 500px; margin: 60px auto; padding: 0 20px; color: #333; }
   h1 { margin-bottom: 8px; }
@@ -162,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </style>
 </head>
 <body>
-<h1>Gantt Chart — Installer</h1>
+<h1>Survey App — Installer</h1>
 <p class="subtitle">Run this once to create the database and admin account. Delete this file afterwards.</p>
 
 <?php if ($success): ?>

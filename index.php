@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
-$slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['c'] ?? ''));
+$slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['s'] ?? ''));
+$view = $_GET['view'] ?? '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -8,7 +9,7 @@ $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['c'] ?? ''));
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gantt Chart</title>
+  <title><?= htmlspecialchars(APP_NAME) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="icon" type="image/png" href="favicon.png">
@@ -18,13 +19,12 @@ $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['c'] ?? ''));
   <?php endif; ?>
 </head>
 
-<body class="overflow-hidden">
-  <!-- App root -->
-  <div id="app" class="h-screen overflow-hidden">
+<body>
+  <div id="app">
     <div class="flex items-center justify-center h-screen text-lg text-[#909090]">Loading…</div>
   </div>
 
-  <!-- Modal overlay (hidden by default; JS removes 'hidden' class to open) -->
+  <!-- Modal overlay -->
   <div id="modal-overlay"
     class="hidden fixed inset-0 bg-black/45 z-[500] p-5 items-center justify-center"
     role="dialog" aria-modal="true">
@@ -37,14 +37,14 @@ $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['c'] ?? ''));
   <div id="toast-container" class="fixed bottom-6 right-6 z-[1000] flex flex-col gap-2 pointer-events-none"></div>
 
   <script>
-    window.GANTT_SLUG = <?= json_encode($slug ?: null) ?>;
+    window.SURVEY_SLUG = <?= json_encode($slug ?: null) ?>;
+    window.SURVEY_VIEW = <?= json_encode($view ?: null) ?>;
   </script>
 
   <?php if (APP_ENV === 'development'): ?>
-    <!-- webpack-dev-server bundle: includes HMR client + CSS injected via style-loader -->
-    <script src="http://localhost:<?= WEBPACK_DEV_PORT ?>/gantt/bundle.js"></script>
+    <script src="http://localhost:<?= WEBPACK_DEV_PORT ?>/survey/bundle.js"></script>
   <?php else: ?>
-    <script src="dist/bundle.js" defer></script>
+    <script src="dist/bundle.js"></script>
   <?php endif; ?>
 </body>
 

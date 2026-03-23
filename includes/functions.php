@@ -23,7 +23,7 @@ function jsonResponse(array $data, int $status = 200): void {
  * running (e.g. to send email without making the client wait).
  */
 function flushJsonResponse(array $data, int $status = 200): void {
-    while (ob_get_level()) ob_end_clean(); // discard any buffered output
+    while (ob_get_level()) ob_end_clean();
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     header('Connection: close');
@@ -32,9 +32,9 @@ function flushJsonResponse(array $data, int $status = 200): void {
     echo $body;
     flush();
     if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request(); // PHP-FPM / FastCGI
+        fastcgi_finish_request();
     }
-    ignore_user_abort(true); // keep running even though browser disconnected
+    ignore_user_abort(true);
 }
 
 function getInput(): array {
@@ -50,22 +50,6 @@ function generateSlug(int $length = 8): string {
         $slug .= $chars[random_int(0, strlen($chars) - 1)];
     }
     return $slug;
-}
-
-function getUniqueSlug(): string {
-    $db = getDB();
-    do {
-        $slug = generateSlug();
-        $stmt = $db->prepare('SELECT id FROM charts WHERE slug = ?');
-        $stmt->execute([$slug]);
-    } while ($stmt->fetch());
-    return $slug;
-}
-
-function sanitizeDate(?string $date): ?string {
-    if (!$date) return null;
-    $d = DateTime::createFromFormat('Y-m-d', $date);
-    return ($d && $d->format('Y-m-d') === $date) ? $date : null;
 }
 
 // ── Admin helpers ────────────────────────────────────────────────
@@ -89,10 +73,6 @@ function getClientIP(): string {
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
-/**
- * Returns brute-force status for the given IP.
- * ['blocked' => bool, 'remaining' => int, 'waitMinutes' => int]
- */
 function getBruteForceStatus(string $ip): array {
     $db          = getDB();
     $windowStart = date('Y-m-d H:i:s', time() - BRUTE_WINDOW_MINUTES * 60);
@@ -123,7 +103,6 @@ function getBruteForceStatus(string $ip): array {
 function recordFailedAttempt(string $ip, string $email): void {
     $db = getDB();
     $db->prepare('INSERT INTO login_attempts (ip, email) VALUES (?, ?)')->execute([$ip, $email]);
-    // Prune old records to keep the table lean
     $db->exec("DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 2 HOUR)");
 }
 
@@ -134,14 +113,6 @@ function clearLoginAttempts(string $ip): void {
 
 // ── Email ────────────────────────────────────────────────────────
 
-/**
- * Send an HTML email via PHPMailer / SMTP.
- * Returns true on success, false on failure (error is logged).
- */
-/**
- * Send an email via SMTP.
- * Returns ['ok' => true] on success, or ['ok' => false, 'error' => string] on failure.
- */
 function sendMail(string $toEmail, string $toName, string $subject, string $htmlBody, string $textBody = ''): array {
     require_once __DIR__ . '/../vendor/autoload.php';
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
@@ -151,12 +122,11 @@ function sendMail(string $toEmail, string $toName, string $subject, string $html
         $mail->SMTPAuth   = true;
         $mail->Username   = SMTP_USER;
         $mail->Password   = SMTP_PASS;
-        // Port 465 = SSL/TLS (SMTPS); port 587 = STARTTLS — pick the right mode automatically
         $mail->SMTPSecure = (SMTP_PORT === 465)
             ? PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS
             : PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = SMTP_PORT;
-        $mail->Timeout    = 10; // seconds — prevents hanging on bad SMTP config
+        $mail->Timeout    = 10;
         $mail->CharSet    = 'UTF-8';
         $mail->setFrom(SMTP_FROM, SMTP_FROM_NAME);
         $mail->addAddress($toEmail, $toName ?: $toEmail);
@@ -173,14 +143,9 @@ function sendMail(string $toEmail, string $toName, string $subject, string $html
     }
 }
 
-/**
- * Create (or replace) a password-reset token for $userId.
- * Returns the plain token (64 hex chars).
- */
 function generateResetToken(int $userId, int $hours = 1): string {
     $db    = getDB();
-    $token = bin2hex(random_bytes(32)); // 64 hex chars, cryptographically random
-    // Invalidate any existing tokens for this user
+    $token = bin2hex(random_bytes(32));
     $db->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$userId]);
     $db->prepare(
         'INSERT INTO password_resets (user_id, token, expires_at)
@@ -189,9 +154,6 @@ function generateResetToken(int $userId, int $hours = 1): string {
     return $token;
 }
 
-/**
- * Shared email template wrapper.
- */
 function emailTemplate(string $heading, string $bodyHtml): string {
     $from = htmlspecialchars(SMTP_FROM_NAME);
     return "<!DOCTYPE html><html><head><meta charset='UTF-8'>
@@ -208,4 +170,70 @@ function emailTemplate(string $heading, string $bodyHtml): string {
   {$bodyHtml}
   <div class='footer'>&copy; {$from}</div>
 </div></body></html>";
+}
+
+// ── Survey helpers ────────────────────────────────────────────────
+
+/**
+ * Validate a survey slug is safe for filesystem use.
+ * Only lowercase alphanumeric and hyphens, 1–60 chars.
+ */
+function isValidSlug(string $slug): bool {
+    return (bool)preg_match('/^[a-z0-9]([a-z0-9\-]{0,58}[a-z0-9])?$/', $slug);
+}
+
+/**
+ * Load a survey definition from surveys/<slug>.php.
+ * NEVER passes user input to include() without validating the slug first.
+ * Returns the array on success, null if missing or malformed.
+ */
+function loadSurvey(string $slug): ?array {
+    if (!isValidSlug($slug)) return null;
+    $path = __DIR__ . '/../surveys/' . $slug . '.php';
+    if (!file_exists($path)) return null;
+    $survey = include $path;
+    if (!is_array($survey) || empty($survey['questions'])) return null;
+    return $survey;
+}
+
+/**
+ * Auto-discover all surveys by scanning surveys/ for *.php files.
+ * Returns array of ['slug' => string, 'title' => string].
+ */
+function discoverSurveys(): array {
+    $dir = __DIR__ . '/../surveys/';
+    if (!is_dir($dir)) return [];
+    $out = [];
+    foreach (glob($dir . '*.php') as $file) {
+        $slug = basename($file, '.php');
+        if (!isValidSlug($slug)) continue;
+        $survey = include $file;
+        if (!is_array($survey)) continue;
+        $out[] = ['slug' => $slug, 'title' => $survey['title'] ?? $slug];
+    }
+    return $out;
+}
+
+/**
+ * Strip a survey definition to only what the client needs.
+ * Removes any server-side or future metadata keys.
+ */
+function sanitizeSurveyForClient(array $survey): array {
+    return [
+        'title'       => (string)($survey['title'] ?? ''),
+        'description' => (string)($survey['description'] ?? ''),
+        'thank_you'   => (string)($survey['thank_you'] ?? 'Thank you for completing the survey.'),
+        'questions'   => array_map(function (array $q): array {
+            $out = [
+                'key'      => (string)($q['key'] ?? ''),
+                'type'     => (string)($q['type'] ?? 'text'),
+                'label'    => (string)($q['label'] ?? ''),
+                'required' => !empty($q['required']),
+            ];
+            if (isset($q['options']))     $out['options']     = array_values((array)$q['options']);
+            if (isset($q['items']))       $out['items']       = array_values((array)$q['items']);
+            if (isset($q['placeholder'])) $out['placeholder'] = (string)$q['placeholder'];
+            return $out;
+        }, array_values((array)$survey['questions'])),
+    ];
 }

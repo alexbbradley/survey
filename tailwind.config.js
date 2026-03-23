@@ -4,6 +4,7 @@ module.exports = {
   content: [
     './src/**/*.{js,ts}',
     './*.php',
+    './surveys/**/*.php',
   ],
   theme: {
     extend: {
