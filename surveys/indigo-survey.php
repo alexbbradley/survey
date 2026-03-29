@@ -54,6 +54,7 @@ If you think of anything else later, feel free to send it on.',
             'label'       => 'Do you currently use the website in your work? If yes, how?',
             'placeholder' => 'e.g. sharing with clients, checking case studies',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
@@ -61,6 +62,7 @@ If you think of anything else later, feel free to send it on.',
             'type'        => 'textarea',
             'label'       => 'What currently works well on the website?',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
@@ -68,6 +70,7 @@ If you think of anything else later, feel free to send it on.',
             'type'        => 'textarea',
             'label'       => 'What doesn\'t work well or causes frustration?',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
@@ -75,14 +78,16 @@ If you think of anything else later, feel free to send it on.',
             'type'        => 'textarea',
             'label'       => 'What information do people ask you for that should already be on the website?',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
             'key'         => 'useful_functionality',
             'type'        => 'textarea',
             'label'       => 'What functionality would make your work easier?',
-            'placeholder' => 'e.g. document hosting, recruitment tools, sales materials, client resources',
+            'description' => 'e.g. document hosting, recruitment tools, sales materials, client resources',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
@@ -90,6 +95,7 @@ If you think of anything else later, feel free to send it on.',
             'type'     => 'ranking',
             'label'    => 'Rank which areas the website should improve most',
             'required' => true,
+            'summary'  => true,
             'items'    => [
                 'Explaining what Indigo does',
                 'Demonstrating credibility',
@@ -106,6 +112,7 @@ If you think of anything else later, feel free to send it on.',
             'type'        => 'textarea',
             'label'       => 'If you could change one thing about the website immediately, what would it be?',
             'required'    => false,
+            'summary'     => true,
         ],
 
         [
@@ -113,6 +120,7 @@ If you think of anything else later, feel free to send it on.',
             'type'        => 'textarea',
             'label'       => 'Anything else we should consider?',
             'required'    => false,
+            'summary'     => true,
         ],
 
     ],

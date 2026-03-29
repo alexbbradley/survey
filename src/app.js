@@ -261,7 +261,7 @@
 
     const body = isGroup
       ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
-         <div class="flex flex-col gap-8 w-full">
+         <div class="flex flex-col gap-12 w-full">
            ${questions.map(q => `
              <div>
                <label class="text-lg font-semibold text-[#fffbf5] mb-1 block">
@@ -273,7 +273,7 @@
                </div>
              </div>`).join('')}
          </div>`
-      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-1 leading-tight block">
+      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-7 leading-tight block">
            ${esc(step.label)}${step.required ? ' <span class="text-red">*</span>' : ''}
          </label>
          ${descHtml(step)}
@@ -294,8 +294,8 @@
 
     return `
       <div class="relative min-h-screen bg-[#1a1a1a]">
-        <div class="fixed top-0 left-0 right-0 z-10 bg-[#1a1a1a] px-6 py-3">
-          <div class="flex items-center justify-between">
+        <div class="fixed top-0 left-0 right-0 z-10 bg-[#1a1a1a] ">
+          <div class="flex items-center justify-between px-6 sm:px-8 py-3">
             <span class="text-base font-semibold ">${esc(state.survey.title)}</span>
             <div class="relative flex-shrink-0 ml-4">
               <button id="btn-menu-toggle" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#909090] hover:text-[#fffbf5] hover:bg-[#2a2a2a] transition-colors cursor-pointer bg-transparent border-0">
@@ -306,9 +306,9 @@
               </div>
             </div>
           </div>
-          <div class="flex gap-0.5 md:gap-1.5 max-w-2xl mx-auto mt-8">${stepBar}</div>
+          <div class="px-6 sm:px-8 flex gap-0.5 md:gap-1.5 max-w-2xl mx-auto mt-8">${stepBar}</div>
         </div>
-        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-24 pb-16 max-w-2xl mx-auto w-full">
+        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-28 pb-16 max-w-2xl mx-auto w-full">
           <p class="text-sm text-[#909090] mb-4">Page ${state.currentQuestion + 1} of ${steps.length}</p>
           ${body}
           <div id="validation-error" class="hidden text-red text-sm mt-3"></div>
@@ -318,7 +318,7 @@
               ${state.saving ? 'Submitting&hellip;' : isLast ? 'Submit' : 'Next &rarr;'}
             </button>
           </div>
-          ${kbHint ? `<p class="text-xs text-[#484848] mt-4 hidden sm:block">${kbHint}</p>` : ''}
+          ${kbHint ? `<p class="text-xs text-[#484848] mt-8 hidden sm:block">${kbHint}</p>` : ''}
         </div>
       </div>`;
   }
@@ -794,6 +794,7 @@
     if (!rankingQs.length) return '';
 
     return rankingQs.map(q => {
+      const num = getQuestionNumber(questions, q.key);
       const data = buildRankingChart(q, sessions);
       if (!data) return '';
 
@@ -812,11 +813,85 @@
           </div>
         </div>`).join('');
 
+      const respCount = sessions.filter(s => { try { return JSON.parse(s.answers?.[q.key] || '').length === q.items.length; } catch(_) { return false; } }).length;
+
       return `
-        <div class="bg-[#222222] border border-[#383838] rounded-xl p-5 mb-6">
-          <h3 class="text-sm font-semibold text-[#fffbf5] mb-4">${esc(q.label)}</h3>
-          <div class="flex flex-col gap-2">${bars}</div>
-          <p class="text-xs text-[#484848] mt-3">Borda count — ${sessions.filter(s => { try { return JSON.parse(s.answers?.[q.key] || '').length === q.items.length; } catch(_) { return false; } }).length} responses weighted (1st = ${q.items.length} pts, last = 1 pt)</p>
+        <div class="mb-6">
+          <h3 class="text-sm font-semibold text-[#fffbf5] mb-3"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}</h3>
+          <div class="bg-[#222222] border border-[#383838] rounded-xl p-5">
+            <div class="flex flex-col gap-2">${bars}</div>
+            <p class="text-xs text-[#484848] mt-3">Borda count — ${respCount} response${respCount !== 1 ? 's' : ''} weighted (1st = ${q.items.length} pts, last = 1 pt)</p>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Answer summary carousels ────────────────────────────────────────────────
+  /** Get the 1-based question number within the full (flat) questions list. */
+  function getQuestionNumber(questions, key) {
+    return questions.findIndex(q => q.key === key) + 1;
+  }
+
+  function renderAnswerSummaries(questions, sessions) {
+    const summaryQs = questions.filter(q => q.summary && q.type !== 'ranking');
+    if (!summaryQs.length || !sessions.length) return '';
+
+    let carouselId = 0;
+
+    return summaryQs.map(q => {
+      const num = getQuestionNumber(questions, q.key);
+      // Collect non-empty answers
+      const answers = sessions
+        .map(s => ({ value: (s.answers?.[q.key] ?? '').trim(), completed: !!s.completed_at }))
+        .filter(a => a.value);
+
+      if (!answers.length) return '';
+
+      // For radio questions, show a tally instead of cards
+      if (q.type === 'radio') {
+        const tally = {};
+        answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
+        const maxCount = Math.max(...Object.values(tally));
+        const bars = Object.entries(tally)
+          .sort((a, b) => b[1] - a[1])
+          .map(([opt, count]) => `
+            <div class="flex items-center gap-3">
+              <div class="flex-1 bg-[#2a2a2a] rounded-full h-7 overflow-hidden">
+                <div class="h-full rounded-full flex items-center px-3 ${count === maxCount ? 'bg-green/40' : 'bg-[#383838]'}"
+                  style="width:${Math.max(Math.round((count / maxCount) * 100), 8)}%">
+                  <span class="text-xs text-[#fffbf5] truncate">${esc(opt)}</span>
+                </div>
+              </div>
+              <span class="text-xs text-[#484848] w-6 text-right flex-shrink-0">${count}</span>
+            </div>`).join('');
+
+        return `
+          <div class="mb-6">
+            <h3 class="text-sm font-semibold text-[#fffbf5] mb-3"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}</h3>
+            <div class="bg-[#222222] border border-[#383838] rounded-xl p-5">
+              <div class="flex flex-col gap-2">${bars}</div>
+              <p class="text-xs text-[#484848] mt-3">${answers.length} response${answers.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>`;
+      }
+
+      // Text/textarea — scrollable carousel with arrows
+      const cid = `carousel-${carouselId++}`;
+      const cards = answers.map(a => `
+        <div class="flex-shrink-0 w-72 bg-[#222222] border border-[#383838] rounded-xl p-4">
+          <p class="text-sm text-[#c0c0c0] leading-relaxed whitespace-pre-line">${esc(a.value)}</p>
+        </div>`).join('');
+
+      return `
+        <div class="mb-6">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-[#fffbf5]"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#484848] font-normal">${answers.length}</span></h3>
+            <div class="flex items-center gap-1">
+              <button data-carousel-prev="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&larr;</button>
+              <button data-carousel-next="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&rarr;</button>
+            </div>
+          </div>
+          <div id="${cid}" class="flex gap-3 overflow-x-auto pb-2 scroll-smooth" style="-webkit-overflow-scrolling:touch">${cards}</div>
         </div>`;
     }).join('');
   }
@@ -882,6 +957,7 @@
             ${completedCount} completed &nbsp;·&nbsp;
             ${sessions.length - completedCount} partial
           </p>
+          ${renderAnswerSummaries(questions, sessions)}
           ${renderRankingCharts(questions, sessions)}
           <div class="overflow-x-auto rounded-xl border border-[#383838]">
             <table class="w-full bg-[#222222]">
@@ -902,6 +978,20 @@
   }
 
   function attachResponsesEvents() {
+    // Carousel arrow buttons
+    document.querySelectorAll('[data-carousel-prev]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const el = document.getElementById(btn.dataset.carouselPrev);
+        if (el) el.scrollBy({ left: -300, behavior: 'smooth' });
+      });
+    });
+    document.querySelectorAll('[data-carousel-next]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const el = document.getElementById(btn.dataset.carouselNext);
+        if (el) el.scrollBy({ left: 300, behavior: 'smooth' });
+      });
+    });
+
     document.getElementById('btn-clear')?.addEventListener('click', async () => {
       if (!confirm(`Delete ALL responses for "${state.survey?.title}"? This cannot be undone.`)) return;
       try {
