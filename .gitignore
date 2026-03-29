@@ -1,6 +1,5 @@
 # Dependencies / generated folders
 node_modules/
-vendor/
 
 
 # LLM/agent cache folders

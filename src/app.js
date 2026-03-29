@@ -8,7 +8,7 @@
     // Buttons
     btn:     'inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-colors cursor-pointer border-0',
     md:      'px-5 py-2.5 text-sm',
-    lg:      'px-6 py-3 text-base',
+    lg:      'px-6 sm:px-8 py-3 text-base',
     sm:      'px-3 py-1.5 text-xs',
     primary: 'bg-green text-[#1a1a1a] hover:bg-greenlight',
     outline: 'bg-transparent border border-[#383838] text-[#fffbf5] hover:border-[#484848] hover:bg-[#2a2a2a]',
@@ -47,7 +47,7 @@
     }
     const res  = await fetch(`api.php?action=${action}`, opts);
     const json = await res.json().catch(() => ({ error: 'Invalid server response' }));
-    if (!res.ok) throw new Error(json.error || 'Request failed');
+    if (!res.ok) { const e = new Error(json.error || 'Request failed'); e.data = json; throw e; }
     return json;
   }
 
@@ -118,6 +118,7 @@
     // Session
     token:           null,
     currentQuestion: 0,
+    maxReached:      0,   // furthest step index the user has reached
     answers:         {},  // { question_key: answer_value_string }
     // Admin
     surveys:      [],   // [{slug, title}] for home page
@@ -220,37 +221,99 @@
   }
 
   // ── Survey page ────────────────────────────────────────────────────────────
-  function renderSurvey() {
-    const questions = state.survey.questions;
-    const q         = questions[state.currentQuestion];
-    const pct       = Math.round((state.currentQuestion / questions.length) * 100);
-    const isLast    = state.currentQuestion === questions.length - 1;
 
-    const kbHint = q.type === 'textarea'
-      ? `Press <kbd>Ctrl</kbd> + <kbd>Enter ↵</kbd> to continue`
-      : q.type === 'radio' || q.type === 'ranking'
-        ? ''
-        : `Press <kbd>Enter ↵</kbd> to continue`;
+  /** Get the flat list of questions inside a step (group or single). */
+  function getStepQuestions(step) {
+    return step.type === 'group' ? step.questions : [step];
+  }
+
+  function renderSurvey() {
+    const steps = state.survey.questions;
+
+    // Intro page
+    if (state.currentQuestion === -1) {
+      const desc = state.survey.description || '';
+      const paragraphs = desc.split(/\n\n+/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${esc(p.trim())}</p>`).join('');
+      return `
+        <div class="relative min-h-screen bg-[#1a1a1a]">
+          <div class="flex flex-col items-start justify-center min-h-screen px-8 py-16 max-w-2xl mx-auto w-full">
+            <h1 class="text-3xl sm:text-4xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(state.survey.title)}</h1>
+            <div class="flex flex-col gap-4 mb-10">${paragraphs}</div>
+            <button id="btn-next" class="${T.btn} ${T.lg} ${T.primary}">Get started &rarr;</button>
+          </div>
+        </div>`;
+    }
+
+    const step   = steps[state.currentQuestion];
+    const isLast = state.currentQuestion === steps.length - 1;
+    const isGroup = step.type === 'group';
+    const questions = getStepQuestions(step);
+
+    // Keyboard hint: hide if any field is textarea/radio/ranking
+    const hasTextarea = questions.some(q => q.type === 'textarea');
+    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking');
+    const kbHint = hasChoiceOnly ? ''
+      : hasTextarea ? `Press <kbd>Ctrl</kbd> + <kbd>Enter ↵</kbd> to continue`
+      : `Press <kbd>Enter ↵</kbd> to continue`;
+
+    const body = isGroup
+      ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
+         <div class="flex flex-col gap-8 w-full">
+           ${questions.map(q => `
+             <div>
+               <label class="text-lg font-semibold text-[#fffbf5] mb-3 block">
+                 ${esc(q.label)}${q.required ? ' <span class="text-red">*</span>' : ''}
+               </label>
+               <div class="w-full" data-question-key="${esc(q.key)}">
+                 ${renderQuestionInput(q)}
+               </div>
+             </div>`).join('')}
+         </div>`
+      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-8 leading-tight block">
+           ${esc(step.label)}${step.required ? ' <span class="text-red">*</span>' : ''}
+         </label>
+         <div class="w-full" id="question-input-wrap">
+           ${renderQuestionInput(step)}
+         </div>`;
+
+    // Step bar segments — clickable for visited steps
+    const stepBar = steps.map((_, i) => {
+      const color = i < state.currentQuestion ? 'bg-green/40'
+                  : i === state.currentQuestion ? 'bg-green'
+                  : i <= state.maxReached ? 'bg-[#383838]'
+                  : 'bg-[#2a2a2a]';
+      const clickable = i <= state.maxReached && i !== state.currentQuestion;
+      const cursor = clickable ? 'cursor-pointer hover:bg-green/60' : '';
+      return `<div class="flex-1 h-3 sm:h-1.5 rounded sm:rounded-full ${color} ${cursor} transition-colors duration-300" data-step-nav="${i}"></div>`;
+    }).join('');
 
     return `
       <div class="relative min-h-screen bg-[#1a1a1a]">
-        <div id="progress-bar" class="fixed top-0 left-0 h-1 bg-green transition-all duration-500 z-10" style="width:${pct}%"></div>
-        <div class="flex flex-col items-start justify-center min-h-screen px-8 py-16 max-w-2xl mx-auto w-full">
-          <p class="text-sm text-[#909090] mb-4">Question ${state.currentQuestion + 1} of ${questions.length}</p>
-          <label class="text-2xl sm:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight block">
-            ${esc(q.label)}${q.required ? ' <span class="text-red">*</span>' : ''}
-          </label>
-          <div class="w-full" id="question-input-wrap">
-            ${renderQuestionInput(q)}
+        <div class="fixed top-0 left-0 right-0 z-10 bg-[#1a1a1a] px-6 py-3">
+          <div class="flex items-center justify-between">
+            <span class="text-base font-semibold ">${esc(state.survey.title)}</span>
+            <div class="relative flex-shrink-0 ml-4">
+              <button id="btn-menu-toggle" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#909090] hover:text-[#fffbf5] hover:bg-[#2a2a2a] transition-colors cursor-pointer bg-transparent border-0">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3" r="1.5" fill="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="13" r="1.5" fill="currentColor"/></svg>
+              </button>
+              <div id="popup-menu" class="hidden absolute right-0 top-10 bg-[#222222] border border-[#383838] rounded-xl shadow-lg py-1 min-w-[160px]">
+                <button id="btn-start-over" class="w-full text-left px-4 py-2.5 text-sm text-[#fffbf5] hover:bg-[#2a2a2a] transition-colors cursor-pointer bg-transparent border-0">Start over</button>
+              </div>
+            </div>
           </div>
+          <div class="flex gap-0.5 md:gap-1.5 max-w-2xl mx-auto mt-8">${stepBar}</div>
+        </div>
+        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-24 pb-16 max-w-2xl mx-auto w-full">
+          <p class="text-sm text-[#909090] mb-4">Page ${state.currentQuestion + 1} of ${steps.length}</p>
+          ${body}
           <div id="validation-error" class="hidden text-red text-sm mt-3"></div>
           <div class="flex items-center gap-3 mt-8">
-            ${state.currentQuestion > 0 ? `<button id="btn-back" class="${T.btn} ${T.md} ${T.outline}">← Back</button>` : ''}
+            ${state.currentQuestion >= 0 ? `<button id="btn-back" class="${T.btn} ${T.md} ${T.outline}">&larr; Back</button>` : ''}
             <button id="btn-next" class="${T.btn} ${T.md} ${T.primary}" ${state.saving ? 'disabled' : ''}>
-              ${state.saving ? 'Submitting…' : isLast ? 'Submit' : 'Next →'}
+              ${state.saving ? 'Submitting&hellip;' : isLast ? 'Submit' : 'Next &rarr;'}
             </button>
           </div>
-          ${kbHint ? `<p class="text-xs text-[#484848] mt-4">${kbHint}</p>` : ''}
+          ${kbHint ? `<p class="text-xs text-[#484848] mt-4 hidden sm:block">${kbHint}</p>` : ''}
         </div>
       </div>`;
   }
@@ -259,11 +322,11 @@
     const saved = state.answers[q.key] ?? '';
     switch (q.type) {
       case 'text':
-        return `<input id="q-input" class="${T.inp} text-xl" type="text" value="${esc(saved)}" placeholder="${esc(q.placeholder || '')}" autocomplete="off" maxlength="500">`;
+        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="text" value="${esc(saved)}" placeholder="${esc(q.placeholder || '')}" autocomplete="${esc(q.autocomplete || 'off')}" maxlength="500">`;
       case 'email':
-        return `<input id="q-input" class="${T.inp} text-xl" type="email" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'you@example.com')}" autocomplete="email">`;
+        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="email" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'you@example.com')}" autocomplete="${esc(q.autocomplete || 'email')}">`;
       case 'url':
-        return `<input id="q-input" class="${T.inp} text-xl" type="url" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'https://')}" autocomplete="url">`;
+        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="url" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'https://')}" autocomplete="${esc(q.autocomplete || 'url')}">`;
       case 'textarea':
         return `<textarea id="q-input" class="${T.ta} text-lg" maxlength="5000" placeholder="${esc(q.placeholder || '')}">${esc(saved)}</textarea>`;
       case 'radio':
@@ -276,11 +339,12 @@
   }
 
   function renderRadioOptions(q, saved) {
-    return `<div id="radio-group" class="flex flex-col gap-3 w-full max-w-lg">` +
+    const name = `q_radio_${q.key}`;
+    return `<div class="radio-group flex flex-col gap-3 w-full max-w-lg" data-radio-key="${esc(q.key)}">` +
       q.options.map(opt => {
         const checked = saved === opt;
         return `<label class="flex items-center gap-4 px-5 py-4 rounded-xl border ${checked ? 'border-green bg-green/10' : 'border-[#383838] bg-[#222222]'} cursor-pointer hover:border-green/60 transition-colors">
-          <input type="radio" name="q_radio" value="${esc(opt)}" class="sr-only" ${checked ? 'checked' : ''}>
+          <input type="radio" name="${name}" value="${esc(opt)}" class="sr-only" ${checked ? 'checked' : ''}>
           <span class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green' : 'border-[#484848]'}">
             ${checked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : ''}
           </span>
@@ -293,7 +357,8 @@
   function renderRankingWidget(q, saved) {
     let items;
     try { items = JSON.parse(saved); } catch (_) { items = null; }
-    if (!Array.isArray(items) || items.length !== q.items.length) {
+    const touched = Array.isArray(items) && items.length === q.items.length;
+    if (!touched) {
       items = [...q.items];
     }
 
@@ -303,38 +368,89 @@
           class="flex items-center gap-3 px-4 py-3 bg-[#222222] border border-[#383838] rounded-xl mb-2 cursor-grab active:cursor-grabbing select-none transition-colors hover:border-[#484848]">
         <span class="text-[#484848] text-xl leading-none flex-shrink-0">⠿</span>
         <span class="flex-1 text-[#fffbf5] text-[16px]">${esc(item)}</span>
-        <span class="text-xs text-[#484848] flex-shrink-0 rank-num">${i + 1}</span>
+        <span class="text-xs text-[#fffbf5] flex-shrink-0 rank-num">${touched ? i + 1 : ''}</span>
       </li>`).join('');
 
-    return `<ul id="rank-list" class="w-full max-w-lg">${listItems}</ul>
+    return `<ul class="rank-list w-full max-w-lg" data-rank-key="${esc(q.key)}">${listItems}</ul>
       <p class="text-xs text-[#484848] mt-2">Drag items to reorder — 1 is most important</p>`;
   }
 
   function attachSurveyEvents() {
-    const q = state.survey.questions[state.currentQuestion];
+    // Intro page — just wire up the start button
+    if (state.currentQuestion === -1) {
+      document.getElementById('btn-next')?.addEventListener('click', () => {
+        state.currentQuestion = 0;
+        rerenderApp();
+        focusInput();
+      });
+      return;
+    }
+
+    const step = state.survey.questions[state.currentQuestion];
+    const questions = getStepQuestions(step);
 
     document.getElementById('btn-next')?.addEventListener('click', handleNext);
     document.getElementById('btn-back')?.addEventListener('click', handleBack);
+    document.getElementById('btn-start-over')?.addEventListener('click', handleStartOver);
 
-    // Radio: update selection highlight and auto-advance
-    document.querySelectorAll('[name="q_radio"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        updateRadioVisuals(radio.value);
-        state.answers[q.key] = radio.value;
-        setTimeout(handleNext, 280);
+    // Popup menu toggle
+    const menuToggle = document.getElementById('btn-menu-toggle');
+    const popupMenu  = document.getElementById('popup-menu');
+    if (menuToggle && popupMenu) {
+      menuToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        popupMenu.classList.toggle('hidden');
+      });
+      document.addEventListener('click', () => popupMenu.classList.add('hidden'));
+    }
+
+    // Step bar navigation
+    document.querySelectorAll('[data-step-nav]').forEach(el => {
+      el.addEventListener('click', () => {
+        const target = parseInt(el.dataset.stepNav, 10);
+        if (target === state.currentQuestion) return;
+        if (target > state.maxReached) return;
+
+        // Going forward — validate current step first
+        if (target > state.currentQuestion) {
+          const err = validateCurrentStep();
+          if (err) { showValidationError(err); return; }
+          collectCurrentAnswers();
+        }
+
+        removeKeyHandler();
+        state.currentQuestion = target;
+        rerenderApp();
+        focusInput();
       });
     });
 
-    // Ranking drag-and-drop
-    if (q.type === 'ranking') {
-      initRankingDrag(q);
-    }
+    questions.forEach(q => {
+      // Radio: update selection highlight (auto-advance only for solo radios)
+      const radioName = `q_radio_${q.key}`;
+      document.querySelectorAll(`[name="${radioName}"]`).forEach(radio => {
+        radio.addEventListener('change', () => {
+          updateRadioVisuals(radio.value, q.key);
+          state.answers[q.key] = radio.value;
+          // Only auto-advance if this is the sole question on the page
+          if (questions.length === 1) setTimeout(handleNext, 280);
+        });
+      });
+
+      // Ranking drag-and-drop
+      if (q.type === 'ranking') {
+        initRankingDrag(q);
+      }
+    });
 
     // Keyboard shortcut
+    const hasTextarea = questions.some(q => q.type === 'textarea');
+    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking');
     const keyHandler = (e) => {
-      if (q.type === 'textarea') {
+      if (hasChoiceOnly) return;
+      if (hasTextarea) {
         if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); handleNext(); }
-      } else if (q.type !== 'radio' && q.type !== 'ranking') {
+      } else {
         if (e.key === 'Enter') { e.preventDefault(); handleNext(); }
       }
     };
@@ -342,8 +458,12 @@
     state._keyHandler = keyHandler;
   }
 
-  function updateRadioVisuals(selectedValue) {
-    document.querySelectorAll('#radio-group label').forEach(label => {
+  function updateRadioVisuals(selectedValue, key) {
+    const container = key
+      ? document.querySelector(`[data-radio-key="${key}"]`)
+      : document.querySelector('.radio-group');
+    if (!container) return;
+    container.querySelectorAll('label').forEach(label => {
       const input    = label.querySelector('input[type="radio"]');
       const circle   = label.querySelector('span:nth-child(2)');
       const isChecked = input && input.value === selectedValue;
@@ -366,7 +486,8 @@
   function focusInput() {
     setTimeout(() => {
       const el = document.getElementById('q-input')
-               || document.querySelector('[name="q_radio"]');
+               || document.querySelector('[data-question-key] input')
+               || document.querySelector('[data-question-key] textarea');
       el?.focus();
     }, 50);
   }
@@ -374,13 +495,16 @@
   function getInputValue(q) {
     switch (q.type) {
       case 'radio': {
-        const checked = document.querySelector('[name="q_radio"]:checked');
+        const checked = document.querySelector(`[name="q_radio_${q.key}"]:checked`)
+                     || document.querySelector('[name="q_radio"]:checked');
         return checked ? checked.value : (state.answers[q.key] || '');
       }
       case 'ranking':
-        return getRankingValue() || state.answers[q.key] || '';
+        return getRankingValue(q.key) || state.answers[q.key] || '';
       default: {
-        const el = document.getElementById('q-input');
+        // In a group, find by data attribute; otherwise fall back to id
+        const el = document.querySelector(`[data-question-key="${q.key}"] input, [data-question-key="${q.key}"] textarea`)
+                || document.getElementById('q-input');
         return el ? el.value : (state.answers[q.key] || '');
       }
     }
@@ -401,40 +525,57 @@
     }
   }
 
+  /** Validate all questions on the current step. Returns error message or null. */
+  function validateCurrentStep() {
+    const step = state.survey.questions[state.currentQuestion];
+    const questions = getStepQuestions(step);
+    for (const q of questions) {
+      const value = getInputValue(q);
+      if (q.required && q.type === 'ranking' && !state.answers[q.key]) return 'Please drag the items to set your preferred order.';
+      if (q.required && !value.trim()) return `Please answer: ${q.label}`;
+      if (q.type === 'email' && value && !isValidEmail(value)) return 'Please enter a valid email address.';
+      if (q.type === 'url' && value && !isValidUrl(value)) return 'Please enter a valid URL (include https://).';
+    }
+    return null;
+  }
+
+  /** Collect all input values from the current step into state.answers. Returns the values. */
+  function collectCurrentAnswers() {
+    const step = state.survey.questions[state.currentQuestion];
+    const questions = getStepQuestions(step);
+    const values = {};
+    for (const q of questions) {
+      values[q.key] = getInputValue(q);
+    }
+    Object.assign(state.answers, values);
+    return values;
+  }
+
   async function handleNext() {
     if (state.saving) return;
-    const q     = state.survey.questions[state.currentQuestion];
-    const value = getInputValue(q);
 
-    // Validation
-    if (q.required && !value.trim()) {
-      showValidationError('This question requires an answer.');
-      return;
-    }
-    if (q.type === 'email' && value && !isValidEmail(value)) {
-      showValidationError('Please enter a valid email address.');
-      return;
-    }
-    if (q.type === 'url' && value && !isValidUrl(value)) {
-      showValidationError('Please enter a valid URL (include https://).');
-      return;
-    }
+    const err = validateCurrentStep();
+    if (err) { showValidationError(err); return; }
 
+    const values = collectCurrentAnswers();
     removeKeyHandler();
-    state.answers[q.key] = value;
 
+    const step = state.survey.questions[state.currentQuestion];
+    const stepQuestions = getStepQuestions(step);
     const isLast = state.currentQuestion === state.survey.questions.length - 1;
 
     if (isLast) {
       state.saving = true;
       rerenderApp();
       try {
-        await api('save_answer', 'POST', {
-          token:          state.token,
-          question_key:   q.key,
-          answer_value:   value,
-          question_index: state.currentQuestion,
-        });
+        for (const q of stepQuestions) {
+          await api('save_answer', 'POST', {
+            token:          state.token,
+            question_key:   q.key,
+            answer_value:   values[q.key],
+            question_index: state.currentQuestion,
+          });
+        }
         await api('complete_survey', 'POST', { token: state.token });
         clearStoredToken(state.surveySlug);
         state.saving = false;
@@ -447,34 +588,55 @@
       return;
     }
 
-    // Fire-and-forget for non-final questions
-    api('save_answer', 'POST', {
-      token:          state.token,
-      question_key:   q.key,
-      answer_value:   value,
-      question_index: state.currentQuestion,
-    }).catch(err => toast(err.message, 'error'));
+    // Fire-and-forget for non-final steps
+    for (const q of stepQuestions) {
+      api('save_answer', 'POST', {
+        token:          state.token,
+        question_key:   q.key,
+        answer_value:   values[q.key],
+        question_index: state.currentQuestion,
+      }).catch(err => toast(err.message, 'error'));
+    }
 
     state.currentQuestion += 1;
+    state.maxReached = Math.max(state.maxReached, state.currentQuestion);
     rerenderApp();
     focusInput();
   }
 
   function handleBack() {
-    if (state.currentQuestion === 0) return;
+    if (state.currentQuestion <= -1) return;
     removeKeyHandler();
     state.currentQuestion -= 1;
     rerenderApp();
     focusInput();
   }
 
+  async function handleStartOver() {
+    removeKeyHandler();
+    clearStoredToken(state.surveySlug);
+    try {
+      const session = await api('start_session', 'POST', { slug: state.surveySlug });
+      setStoredToken(state.surveySlug, session.token);
+      state.token           = session.token;
+      state.answers         = {};
+      state.currentQuestion = 0;
+      state.maxReached      = 0;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    rerenderApp();
+    focusInput();
+  }
+
   // ── Ranking drag-and-drop ──────────────────────────────────────────────────
   function initRankingDrag(q) {
-    const list = document.getElementById('rank-list');
+    const list = document.querySelector(`[data-rank-key="${q.key}"]`);
     if (!list) return;
 
     let dragSrc = null;
 
+    // ── Mouse / desktop drag ──
     list.addEventListener('dragstart', e => {
       dragSrc = e.target.closest('[data-rank-item]');
       if (!dragSrc) return;
@@ -499,6 +661,57 @@
       updateRankNumbers();
       state.answers[q.key] = getRankingValue();
     });
+
+    // ── Touch drag ──
+    let touchItem = null;
+    let touchClone = null;
+    let touchOffsetY = 0;
+
+    list.addEventListener('touchstart', e => {
+      const li = e.target.closest('[data-rank-item]');
+      if (!li) return;
+      touchItem = li;
+      const touch = e.touches[0];
+      const rect = li.getBoundingClientRect();
+      touchOffsetY = touch.clientY - rect.top;
+
+      // Create a floating clone for visual feedback
+      touchClone = li.cloneNode(true);
+      touchClone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.85;z-index:1000;pointer-events:none;`;
+      document.body.appendChild(touchClone);
+
+      li.style.opacity = '0.4';
+    }, { passive: true });
+
+    list.addEventListener('touchmove', e => {
+      if (!touchItem) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+
+      // Move the floating clone
+      if (touchClone) {
+        touchClone.style.top = (touch.clientY - touchOffsetY) + 'px';
+      }
+
+      // Reorder in the list
+      const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-rank-item]');
+      if (target && target !== touchItem && list.contains(target)) {
+        const rect  = target.getBoundingClientRect();
+        const after = touch.clientY > rect.top + rect.height / 2;
+        list.insertBefore(touchItem, after ? target.nextSibling : target);
+      }
+    }, { passive: false });
+
+    const endTouch = () => {
+      if (!touchItem) return;
+      touchItem.style.opacity = '';
+      if (touchClone) { touchClone.remove(); touchClone = null; }
+      touchItem = null;
+      updateRankNumbers();
+      state.answers[q.key] = getRankingValue();
+    };
+    list.addEventListener('touchend', endTouch);
+    list.addEventListener('touchcancel', endTouch);
   }
 
   function updateRankNumbers() {
@@ -508,20 +721,25 @@
     });
   }
 
-  function getRankingValue() {
-    const items = [...document.querySelectorAll('[data-rank-item]')];
+  function getRankingValue(key) {
+    const container = key ? document.querySelector(`[data-rank-key="${key}"]`) : document;
+    const items = [...(container || document).querySelectorAll('[data-rank-item]')];
     if (!items.length) return '';
     return JSON.stringify(items.map(el => el.dataset.rankItem));
   }
 
   // ── Completed page ─────────────────────────────────────────────────────────
   function renderCompleted() {
-    const thankYou = state.survey?.thank_you || 'Thank you for completing the survey.';
+    const title = state.survey?.thank_you_title || 'Thank you!';
+    const body  = state.survey?.thank_you || '';
+    const paragraphs = body
+      ? body.split(/\n\n+/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${esc(p.trim())}</p>`).join('')
+      : '<p class="text-[#909090] text-sm">Your responses have been recorded.</p>';
     return `
       <div class="flex flex-col items-center justify-center min-h-screen bg-[#1a1a1a] text-center px-8">
         <div class="w-16 h-16 rounded-full bg-green/20 flex items-center justify-center mb-6 text-2xl">✓</div>
-        <h1 class="text-2xl sm:text-3xl font-bold text-[#fffbf5] mb-4 max-w-lg">${esc(thankYou)}</h1>
-        <p class="text-[#909090] text-sm">Your responses have been recorded.</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-4 max-w-lg">${esc(title)}</h1>
+        <div class="flex flex-col gap-3 max-w-lg">${paragraphs}</div>
       </div>`;
   }
 
@@ -740,11 +958,19 @@
         });
         setStoredToken(slug, session.token);
         state.token           = session.token;
-        state.currentQuestion = session.current_question;
         state.answers         = session.answers || {};
+        // Show intro for new sessions, resume at saved position otherwise
+        const isNew = session.current_question === 0 && Object.keys(state.answers).length === 0;
+        state.currentQuestion = isNew ? -1 : session.current_question;
+        state.maxReached      = session.current_question;
         state.page            = 'survey';
       } catch (err) {
         if (err.message === 'already_completed') {
+          if (err.data) {
+            state.survey = state.survey || {};
+            if (err.data.thank_you_title) state.survey.thank_you_title = err.data.thank_you_title;
+            if (err.data.thank_you) state.survey.thank_you = err.data.thank_you;
+          }
           state.page = 'completed';
         } else {
           toast(err.message, 'error');

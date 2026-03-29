@@ -1,7 +1,7 @@
 {
-  "name": "gantt-chart",
+  "name": "survey",
   "version": "1.0.0",
-  "description": "Gantt Chart Application",
+  "description": "Survey Application",
   "private": true,
   "scripts": {
     "start":   "webpack serve --mode development",

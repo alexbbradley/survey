@@ -274,8 +274,9 @@ try {
                 if ($session) {
                     if ($session['completed_at'] !== null) {
                         jsonResponse([
-                            'error'     => 'already_completed',
-                            'thank_you' => $survey['thank_you'] ?? 'Thank you!',
+                            'error'           => 'already_completed',
+                            'thank_you_title' => $survey['thank_you_title'] ?? 'Thank you!',
+                            'thank_you'       => $survey['thank_you'] ?? '',
                         ], 409);
                         break;
                     }
@@ -412,7 +413,7 @@ try {
             }
 
             jsonResponse([
-                'questions' => sanitizeSurveyForClient($survey)['questions'],
+                'questions' => flattenQuestions(sanitizeSurveyForClient($survey)['questions']),
                 'sessions'  => $rows,
             ]);
             break;
@@ -440,7 +441,7 @@ try {
                 $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
             }
 
-            $questions = sanitizeSurveyForClient($survey)['questions'];
+            $questions = flattenQuestions(sanitizeSurveyForClient($survey)['questions']);
             $keys      = array_column($questions, 'key');
 
             while (ob_get_level()) ob_end_clean();

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Example survey definition.
  * Filename (without .php) = URL slug: /?s=example

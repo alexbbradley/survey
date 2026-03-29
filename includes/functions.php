@@ -215,25 +215,57 @@ function discoverSurveys(): array {
 }
 
 /**
+ * Sanitize a single question (or group) for client consumption.
+ */
+function sanitizeQuestion(array $q): array {
+    if (($q['type'] ?? '') === 'group') {
+        return [
+            'type'      => 'group',
+            'label'     => (string)($q['label'] ?? ''),
+            'questions' => array_map('sanitizeQuestion', array_values((array)($q['questions'] ?? []))),
+        ];
+    }
+    $out = [
+        'key'      => (string)($q['key'] ?? ''),
+        'type'     => (string)($q['type'] ?? 'text'),
+        'label'    => (string)($q['label'] ?? ''),
+        'required' => !empty($q['required']),
+    ];
+    if (isset($q['options']))     $out['options']     = array_values((array)$q['options']);
+    if (isset($q['items']))       $out['items']       = array_values((array)$q['items']);
+    if (isset($q['placeholder']))  $out['placeholder']  = (string)$q['placeholder'];
+    if (isset($q['autocomplete'])) $out['autocomplete'] = (string)$q['autocomplete'];
+    return $out;
+}
+
+/**
+ * Flatten a questions array, expanding groups into their child questions.
+ * Used by responses/CSV where we need a flat list of question keys.
+ */
+function flattenQuestions(array $questions): array {
+    $flat = [];
+    foreach ($questions as $q) {
+        if (($q['type'] ?? '') === 'group') {
+            foreach (($q['questions'] ?? []) as $child) {
+                $flat[] = $child;
+            }
+        } else {
+            $flat[] = $q;
+        }
+    }
+    return $flat;
+}
+
+/**
  * Strip a survey definition to only what the client needs.
  * Removes any server-side or future metadata keys.
  */
 function sanitizeSurveyForClient(array $survey): array {
     return [
-        'title'       => (string)($survey['title'] ?? ''),
-        'description' => (string)($survey['description'] ?? ''),
-        'thank_you'   => (string)($survey['thank_you'] ?? 'Thank you for completing the survey.'),
-        'questions'   => array_map(function (array $q): array {
-            $out = [
-                'key'      => (string)($q['key'] ?? ''),
-                'type'     => (string)($q['type'] ?? 'text'),
-                'label'    => (string)($q['label'] ?? ''),
-                'required' => !empty($q['required']),
-            ];
-            if (isset($q['options']))     $out['options']     = array_values((array)$q['options']);
-            if (isset($q['items']))       $out['items']       = array_values((array)$q['items']);
-            if (isset($q['placeholder'])) $out['placeholder'] = (string)$q['placeholder'];
-            return $out;
-        }, array_values((array)$survey['questions'])),
+        'title'           => (string)($survey['title'] ?? ''),
+        'description'     => (string)($survey['description'] ?? ''),
+        'thank_you_title' => (string)($survey['thank_you_title'] ?? 'Thank you!'),
+        'thank_you'       => (string)($survey['thank_you'] ?? ''),
+        'questions'       => array_map('sanitizeQuestion', array_values((array)$survey['questions'])),
     ];
 }
