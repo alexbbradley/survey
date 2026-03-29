@@ -234,6 +234,7 @@ function sanitizeQuestion(array $q): array {
     if (isset($q['options']))     $out['options']     = array_values((array)$q['options']);
     if (isset($q['items']))       $out['items']       = array_values((array)$q['items']);
     if (isset($q['placeholder']))  $out['placeholder']  = (string)$q['placeholder'];
+    if (isset($q['description'])) $out['description'] = (string)$q['description'];
     if (isset($q['autocomplete'])) $out['autocomplete'] = (string)$q['autocomplete'];
     return $out;
 }

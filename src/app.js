@@ -256,22 +256,27 @@
       : hasTextarea ? `Press <kbd>Ctrl</kbd> + <kbd>Enter ↵</kbd> to continue`
       : `Press <kbd>Enter ↵</kbd> to continue`;
 
+    const descHtml = (q) => q.description
+      ? `<p class="text-sm text-[#909090] mt-1 mb-3">${esc(q.description)}</p>` : '';
+
     const body = isGroup
       ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
          <div class="flex flex-col gap-8 w-full">
            ${questions.map(q => `
              <div>
-               <label class="text-lg font-semibold text-[#fffbf5] mb-3 block">
+               <label class="text-lg font-semibold text-[#fffbf5] mb-1 block">
                  ${esc(q.label)}${q.required ? ' <span class="text-red">*</span>' : ''}
                </label>
+               ${descHtml(q)}
                <div class="w-full" data-question-key="${esc(q.key)}">
                  ${renderQuestionInput(q)}
                </div>
              </div>`).join('')}
          </div>`
-      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-8 leading-tight block">
+      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-1 leading-tight block">
            ${esc(step.label)}${step.required ? ' <span class="text-red">*</span>' : ''}
          </label>
+         ${descHtml(step)}
          <div class="w-full" id="question-input-wrap">
            ${renderQuestionInput(step)}
          </div>`;
@@ -752,6 +757,70 @@
       </div>`;
   }
 
+  // ── Ranking charts (Borda count) ────────────────────────────────────────────
+  /**
+   * Borda count: for N items, 1st place = N pts, 2nd = N-1, … last = 1.
+   * Returns sorted array of { label, score, pct }.
+   */
+  function buildRankingChart(q, sessions) {
+    const validAnswers = sessions
+      .map(s => { try { return JSON.parse(s.answers?.[q.key] || ''); } catch (_) { return null; } })
+      .filter(a => Array.isArray(a) && a.length === q.items.length);
+
+    if (!validAnswers.length) return null;
+
+    const n = q.items.length;
+    const scores = {};
+    q.items.forEach(item => scores[item] = 0);
+
+    validAnswers.forEach(ranking => {
+      ranking.forEach((item, i) => {
+        if (scores[item] !== undefined) scores[item] += (n - i);
+      });
+    });
+
+    const maxScore = Math.max(...Object.values(scores));
+    return Object.entries(scores)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, score]) => ({
+        label,
+        score,
+        pct: maxScore > 0 ? Math.round((score / maxScore) * 100) : 0,
+      }));
+  }
+
+  function renderRankingCharts(questions, sessions) {
+    const rankingQs = questions.filter(q => q.type === 'ranking');
+    if (!rankingQs.length) return '';
+
+    return rankingQs.map(q => {
+      const data = buildRankingChart(q, sessions);
+      if (!data) return '';
+
+      const bars = data.map((d, i) => `
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-[#909090] w-5 text-right flex-shrink-0">${i + 1}.</span>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="flex-1 bg-[#2a2a2a] rounded-full h-7 overflow-hidden">
+              <div class="h-full rounded-full flex items-center px-3 transition-all duration-500
+                ${i === 0 ? 'bg-green/40' : 'bg-[#383838]'}"
+                style="width:${Math.max(d.pct, 8)}%">
+                <span class="text-xs text-[#fffbf5] truncate">${esc(d.label)}</span>
+              </div>
+            </div>
+            <span class="text-xs text-[#484848] w-10 text-right flex-shrink-0">${d.score} pts</span>
+          </div>
+        </div>`).join('');
+
+      return `
+        <div class="bg-[#222222] border border-[#383838] rounded-xl p-5 mb-6">
+          <h3 class="text-sm font-semibold text-[#fffbf5] mb-4">${esc(q.label)}</h3>
+          <div class="flex flex-col gap-2">${bars}</div>
+          <p class="text-xs text-[#484848] mt-3">Borda count — ${sessions.filter(s => { try { return JSON.parse(s.answers?.[q.key] || '').length === q.items.length; } catch(_) { return false; } }).length} responses weighted (1st = ${q.items.length} pts, last = 1 pt)</p>
+        </div>`;
+    }).join('');
+  }
+
   // ── Responses page (admin) ─────────────────────────────────────────────────
   function renderResponses() {
     const { questions, sessions } = state.responsesData || { questions: [], sessions: [] };
@@ -813,6 +882,7 @@
             ${completedCount} completed &nbsp;·&nbsp;
             ${sessions.length - completedCount} partial
           </p>
+          ${renderRankingCharts(questions, sessions)}
           <div class="overflow-x-auto rounded-xl border border-[#383838]">
             <table class="w-full bg-[#222222]">
               <thead class="border-b border-[#383838] bg-[#2a2a2a]">

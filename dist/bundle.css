@@ -689,8 +689,14 @@ video {
 .h-6{
   height: 1.5rem;
 }
+.h-7{
+  height: 1.75rem;
+}
 .h-8{
   height: 2rem;
+}
+.h-full{
+  height: 100%;
 }
 .h-screen{
   height: 100vh;
@@ -704,11 +710,17 @@ video {
 .min-h-screen{
   min-height: 100vh;
 }
+.w-10{
+  width: 2.5rem;
+}
 .w-16{
   width: 4rem;
 }
 .w-3{
   width: 0.75rem;
+}
+.w-5{
+  width: 1.25rem;
 }
 .w-6{
   width: 1.5rem;
@@ -789,6 +801,9 @@ video {
 }
 .gap-8{
   gap: 2rem;
+}
+.overflow-hidden{
+  overflow: hidden;
 }
 .overflow-x-auto{
   overflow-x: auto;
@@ -979,6 +994,9 @@ video {
 .text-center{
   text-align: center;
 }
+.text-right{
+  text-align: right;
+}
 .font-mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
@@ -1104,6 +1122,11 @@ video {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
+.transition-all{
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
 .transition-colors{
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -1111,6 +1134,9 @@ video {
 }
 .duration-300{
   transition-duration: 300ms;
+}
+.duration-500{
+  transition-duration: 500ms;
 }
 
 body {
