@@ -36,3 +36,4 @@ kbd {
 
 /* ── Ranking drag ghost ──────────────────────────────────── */
 [data-rank-item][draggable="true"]:active { cursor: grabbing; }
+

@@ -1,6 +1,8 @@
 /* survey/src/app.js — Typeform-style survey SPA */
 'use strict';
 
+import EmblaCarousel from 'embla-carousel';
+
 (function () {
 
   // ── Tailwind class constants ───────────────────────────────────────────────
@@ -878,20 +880,24 @@
       // Text/textarea — scrollable carousel with arrows
       const cid = `carousel-${carouselId++}`;
       const cards = answers.map(a => `
-        <div class="flex-shrink-0 w-72 bg-[#222222] border border-[#383838] rounded-xl p-4">
-          <p class="text-sm text-[#c0c0c0] leading-relaxed whitespace-pre-line">${esc(a.value)}</p>
+        <div class="min-w-0" style="flex:0 0 280px">
+          <div class="bg-[#222222] border border-[#383838] rounded-xl p-4 h-full">
+            <p class="text-sm text-[#c0c0c0] leading-relaxed whitespace-pre-line">${esc(a.value)}</p>
+          </div>
         </div>`).join('');
 
       return `
-        <div class="mb-6">
+        <div class="mb-12 pb-12 border-b border-[#383838] min-w-0">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-[#fffbf5]"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#484848] font-normal">${answers.length}</span></h3>
+            <h3 class="text-base font-semibold text-[#fffbf5]"><span class="">${num}.</span> ${esc(q.label)} <span class="text-[#909090]">(${answers.length})</span></h3>
             <div class="flex items-center gap-1">
               <button data-carousel-prev="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&larr;</button>
               <button data-carousel-next="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&rarr;</button>
             </div>
           </div>
-          <div id="${cid}" class="flex gap-3 overflow-x-auto pb-2 scroll-smooth" style="-webkit-overflow-scrolling:touch">${cards}</div>
+          <div id="${cid}" class="overflow-hidden min-w-0">
+            <div class="flex gap-3">${cards}</div>
+          </div>
         </div>`;
     }).join('');
   }
@@ -978,18 +984,19 @@
   }
 
   function attachResponsesEvents() {
-    // Carousel arrow buttons
+    // Init Embla carousels with arrow buttons
     document.querySelectorAll('[data-carousel-prev]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const el = document.getElementById(btn.dataset.carouselPrev);
-        if (el) el.scrollBy({ left: -300, behavior: 'smooth' });
-      });
-    });
-    document.querySelectorAll('[data-carousel-next]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const el = document.getElementById(btn.dataset.carouselNext);
-        if (el) el.scrollBy({ left: 300, behavior: 'smooth' });
-      });
+      const cid = btn.dataset.carouselPrev;
+      const el = document.getElementById(cid);
+      if (!el || el._embla) return;
+      const embla = EmblaCarousel(el, { align: 'start', containScroll: 'trimSnaps', dragFree: false, speed: 15 });
+      el.style.cursor = 'grab';
+      embla.on('pointerDown', () => { el.style.cursor = 'grabbing'; });
+      embla.on('pointerUp', () => { el.style.cursor = 'grab'; });
+      el._embla = embla;
+      btn.addEventListener('click', () => embla.scrollPrev());
+      const nextBtn = document.querySelector(`[data-carousel-next="${cid}"]`);
+      if (nextBtn) nextBtn.addEventListener('click', () => embla.scrollNext());
     });
 
     document.getElementById('btn-clear')?.addEventListener('click', async () => {
