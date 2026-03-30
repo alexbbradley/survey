@@ -1,7 +1,11 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/functions.php';
 $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['s'] ?? ''));
 $view = $_GET['view'] ?? '';
+$survey = $slug ? loadSurvey($slug) : null;
+$pageTitle = $survey ? $survey['title'] : APP_NAME;
+$pageDesc  = $survey ? trim(explode("\n", $survey['description'] ?? '')[0]) : '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -9,7 +13,10 @@ $view = $_GET['view'] ?? '';
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title><?= htmlspecialchars(APP_NAME) ?></title>
+  <title><?= htmlspecialchars($pageTitle) ?></title>
+  <?php if ($pageDesc): ?>
+    <meta name="description" content="<?= htmlspecialchars($pageDesc) ?>">
+  <?php endif; ?>
   <meta name="robots" content="noindex, nofollow">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="icon" type="image/png" href="favicon.png">
