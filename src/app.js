@@ -259,27 +259,32 @@ import EmblaCarousel from 'embla-carousel';
       : `Press <kbd>Enter ↵</kbd> to continue`;
 
     const descHtml = (q) => q.description
-      ? `<p class="text-sm text-[#909090] mt-1 mb-3">${esc(q.description)}</p>` : '';
+      ? `<p class="text-base text-[#909090] mb-3">${esc(q.description)}</p>` : '';
 
     const body = isGroup
       ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
          <div class="flex flex-col gap-12 w-full">
-           ${questions.map(q => `
+           ${questions.map(q => {
+             const useLabel = q.type !== 'radio' && q.type !== 'ranking';
+             const tag = useLabel ? 'label' : 'p';
+             const forAttr = useLabel ? ` for="q-${esc(q.key)}"` : '';
+             return `
              <div>
-               <label class="text-lg font-semibold text-[#fffbf5] mb-1 block">
+               <${tag}${forAttr} class="text-lg font-semibold text-[#fffbf5] mb-1 block">
                  ${esc(q.label)}${q.required ? ' <span class="text-red">*</span>' : ''}
-               </label>
+               </${tag}>
                ${descHtml(q)}
                <div class="w-full" data-question-key="${esc(q.key)}">
                  ${renderQuestionInput(q)}
                </div>
-             </div>`).join('')}
+             </div>`;
+           }).join('')}
          </div>`
-      : `<label class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-7 leading-tight block">
+      : `<${step.type !== 'radio' && step.type !== 'ranking' ? `label for="q-${esc(step.key)}"` : 'p'} class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-3 leading-tight block">
            ${esc(step.label)}${step.required ? ' <span class="text-red">*</span>' : ''}
-         </label>
+         </${step.type !== 'radio' && step.type !== 'ranking' ? 'label' : 'p'}>
          ${descHtml(step)}
-         <div class="w-full" id="question-input-wrap">
+         <div class="w-full mt-5" id="question-input-wrap">
            ${renderQuestionInput(step)}
          </div>`;
 
@@ -297,7 +302,7 @@ import EmblaCarousel from 'embla-carousel';
     return `
       <div class="relative min-h-screen bg-[#1a1a1a]">
         <div class="fixed top-0 left-0 right-0 z-10 bg-[#1a1a1a] ">
-          <div class="flex items-center justify-between px-6 sm:px-8 py-3">
+          <div class="flex items-center justify-between px-6 pt-6 lg:pb-6">
             <span class="text-base font-semibold ">${esc(state.survey.title)}</span>
             <div class="relative flex-shrink-0 ml-4">
               <button id="btn-menu-toggle" class="w-8 h-8 flex items-center justify-center rounded-lg text-[#909090] hover:text-[#fffbf5] hover:bg-[#2a2a2a] transition-colors cursor-pointer bg-transparent border-0">
@@ -327,21 +332,22 @@ import EmblaCarousel from 'embla-carousel';
 
   function renderQuestionInput(q) {
     const saved = state.answers[q.key] ?? '';
+    const id = `q-${q.key || 'input'}`;
     switch (q.type) {
       case 'text':
-        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="text" value="${esc(saved)}" placeholder="${esc(q.placeholder || '')}" autocomplete="${esc(q.autocomplete || 'off')}" maxlength="500">`;
+        return `<input id="${id}" class="${T.inp} text-base xl:text-lg" type="text" value="${esc(saved)}" placeholder="${esc(q.placeholder || '')}" autocomplete="${esc(q.autocomplete || 'off')}" maxlength="500">`;
       case 'email':
-        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="email" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'you@example.com')}" autocomplete="${esc(q.autocomplete || 'email')}">`;
+        return `<input id="${id}" class="${T.inp} text-base xl:text-lg" type="email" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'you@example.com')}" autocomplete="${esc(q.autocomplete || 'email')}">`;
       case 'url':
-        return `<input id="q-input" class="${T.inp} text-lg sm:text-xl" type="url" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'https://')}" autocomplete="${esc(q.autocomplete || 'url')}">`;
+        return `<input id="${id}" class="${T.inp} text-base xl:text-lg" type="url" value="${esc(saved)}" placeholder="${esc(q.placeholder || 'https://')}" autocomplete="${esc(q.autocomplete || 'url')}">`;
       case 'textarea':
-        return `<textarea id="q-input" class="${T.ta} text-lg" maxlength="5000" placeholder="${esc(q.placeholder || '')}">${esc(saved)}</textarea>`;
+        return `<textarea id="${id}" class="${T.ta} xl:text-lg text-base" maxlength="5000" placeholder="${esc(q.placeholder || '')}">${esc(saved)}</textarea>`;
       case 'radio':
         return renderRadioOptions(q, saved);
       case 'ranking':
         return renderRankingWidget(q, saved);
       default:
-        return `<input id="q-input" class="${T.inp} text-xl" type="text" value="${esc(saved)}" autocomplete="off">`;
+        return `<input id="${id}" class="${T.inp} text-xl" type="text" value="${esc(saved)}" autocomplete="off">`;
     }
   }
 
@@ -349,16 +355,31 @@ import EmblaCarousel from 'embla-carousel';
     const name = `q_radio_${q.key}`;
     return `<div class="radio-group flex flex-col gap-3 w-full max-w-lg" data-radio-key="${esc(q.key)}">` +
       q.options.map(opt => {
-        const checked = saved === opt;
+        const label = typeof opt === 'object' ? opt.label : opt;
+        const desc  = typeof opt === 'object' ? opt.description : '';
+        const value = label;
+        const checked = saved === value;
         return `<label class="flex items-center gap-4 px-5 py-4 rounded-xl border ${checked ? 'border-green bg-green/10' : 'border-[#383838] bg-[#222222]'} cursor-pointer hover:border-green/60 transition-colors">
-          <input type="radio" name="${name}" value="${esc(opt)}" class="sr-only" ${checked ? 'checked' : ''}>
+          <input type="radio" name="${name}" value="${esc(value)}" class="sr-only" ${checked ? 'checked' : ''}>
           <span class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green' : 'border-[#484848]'}">
             ${checked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : ''}
           </span>
-          <span class="text-[#fffbf5] text-[16px]">${esc(opt)}</span>
+          <div class="flex flex-col">
+            <span class="text-[#fffbf5] text-[16px]">${esc(label)}</span>
+            ${desc ? `<span class="text-[#909090] text-sm mt-0.5">${esc(desc)}</span>` : ''}
+          </div>
         </label>`;
       }).join('') +
     `</div>`;
+  }
+
+  /** Fisher-Yates shuffle (in-place). */
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
   }
 
   function renderRankingWidget(q, saved) {
@@ -366,7 +387,7 @@ import EmblaCarousel from 'embla-carousel';
     try { items = JSON.parse(saved); } catch (_) { items = null; }
     const touched = Array.isArray(items) && items.length === q.items.length;
     if (!touched) {
-      items = [...q.items];
+      items = shuffle([...q.items]);
     }
 
     const listItems = items.map((item, i) => `
@@ -378,8 +399,7 @@ import EmblaCarousel from 'embla-carousel';
         <span class="text-xs text-[#fffbf5] flex-shrink-0 rank-num">${touched ? i + 1 : ''}</span>
       </li>`).join('');
 
-    return `<ul class="rank-list w-full max-w-lg" data-rank-key="${esc(q.key)}">${listItems}</ul>
-      <p class="text-xs text-[#484848] mt-2">Drag items to reorder — 1 is most important</p>`;
+    return `<ul class="rank-list w-full max-w-lg" data-rank-key="${esc(q.key)}">${listItems}</ul>`;
   }
 
   function attachSurveyEvents() {
@@ -492,7 +512,10 @@ import EmblaCarousel from 'embla-carousel';
 
   function focusInput() {
     setTimeout(() => {
-      const el = document.getElementById('q-input')
+      const step = state.survey?.questions?.[state.currentQuestion];
+      if (!step) return;
+      const qs = getStepQuestions(step);
+      const el = document.getElementById(`q-${qs[0]?.key}`)
                || document.querySelector('[data-question-key] input')
                || document.querySelector('[data-question-key] textarea');
       el?.focus();
@@ -509,9 +532,7 @@ import EmblaCarousel from 'embla-carousel';
       case 'ranking':
         return getRankingValue(q.key) || state.answers[q.key] || '';
       default: {
-        // In a group, find by data attribute; otherwise fall back to id
-        const el = document.querySelector(`[data-question-key="${q.key}"] input, [data-question-key="${q.key}"] textarea`)
-                || document.getElementById('q-input');
+        const el = document.getElementById(`q-${q.key}`);
         return el ? el.value : (state.answers[q.key] || '');
       }
     }
@@ -627,7 +648,7 @@ import EmblaCarousel from 'embla-carousel';
       setStoredToken(state.surveySlug, session.token);
       state.token           = session.token;
       state.answers         = {};
-      state.currentQuestion = 0;
+      state.currentQuestion = -1;
       state.maxReached      = 0;
     } catch (err) {
       toast(err.message, 'error');
@@ -740,11 +761,11 @@ import EmblaCarousel from 'embla-carousel';
     const title = state.survey?.thank_you_title || 'Thank you!';
     const body  = state.survey?.thank_you || '';
     const paragraphs = body
-      ? body.split(/\n\n+/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${esc(p.trim())}</p>`).join('')
+      ? body.split(/\n\s*\n/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${p.trim()}</p>`).join('')
       : '<p class="text-[#909090] text-sm">Your responses have been recorded.</p>';
     return `
       <div class="flex flex-col items-center justify-center min-h-screen bg-[#1a1a1a] text-center px-8">
-        <div class="w-16 h-16 rounded-full bg-green/20 flex items-center justify-center mb-6 text-2xl">✓</div>
+        <div class="w-16 h-16 rounded-full bg-green flex items-center justify-center mb-6 text-2xl text-black">✓</div>
         <h1 class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-4 max-w-lg">${esc(title)}</h1>
         <div class="flex flex-col gap-3 max-w-lg">${paragraphs}</div>
       </div>`;
@@ -1102,7 +1123,14 @@ import EmblaCarousel from 'embla-carousel';
         return;
       }
 
-      // 3. Responses view (admin only)
+      // 3. Thank you preview
+      if (state.surveyView === 'thankyou') {
+        state.page = 'completed';
+        rerenderApp();
+        return;
+      }
+
+      // 4. Responses view (admin only)
       if (state.surveyView === 'responses') {
         if (!state.isAdmin) {
           // Render a background and pop the login modal

@@ -6,17 +6,13 @@
  */
 return [
     'title'       => 'Indigo Website Survey',
-    'description' => 'We\'re reviewing the Indigo website to understand what it needs to do better for the business and for the teams that use it.
+    'description' => 'We’re reviewing the Indigo website to understand how it should better support the business. Please answer honestly. Responses will be used to identify overall themes and won’t be attributed to individuals.
 
-Your input is valuable because you see how the company operates day-to-day. Please answer honestly — there are no right or wrong answers.
-
-Responses will be reviewed as part of the overall findings and won\'t be attributed to individuals in any reporting. The goal is to identify patterns and priorities, not individual views.
-
-This should take about 5 minutes.',
+The survey should take about 5 minutes.Thanks for your time.',
     'thank_you_title' => 'Thanks for your input!',
     'thank_you'       => 'Your feedback will directly help shape the direction of the website.
-
-If you think of anything else later, feel free to send it on.',
+    
+    If you have anything else to add, please don\'t hesitate to contact <a class="underline hover:text-[#fffbf5]" href="mailto:chris.Findon@indigotg.com">chris.findon@indigotg.com</a>.',
 
     'questions' => [
 
@@ -27,7 +23,7 @@ If you think of anything else later, feel free to send it on.',
                 [
                     'key'          => 'name',
                     'type'         => 'text',
-                    'label'        => 'What\'s your name?',
+                    'label'        => 'Your name?',
                     'placeholder'  => 'Jane Smith',
                     'autocomplete' => 'name',
                     'required'     => true,
@@ -35,14 +31,14 @@ If you think of anything else later, feel free to send it on.',
                 [
                     'key'      => 'email',
                     'type'     => 'email',
-                    'label'    => 'What\'s your email address?',
+                    'label'    => 'Your email address?',
                     'required' => true,
                 ],
                 [
                     'key'         => 'department',
                     'type'        => 'text',
-                    'label'       => 'What department are you in?',
-                    'placeholder' => 'e.g. Marketing, Engineering',
+                    'label'       => 'Your department or role at Indigo?',
+                    'placeholder' => 'e.g. Operations Manager, Sales, IT, etc',
                     'required'    => true,
                 ],
             ],
@@ -85,7 +81,7 @@ If you think of anything else later, feel free to send it on.',
             'key'         => 'useful_functionality',
             'type'        => 'textarea',
             'label'       => 'What functionality would make your work easier?',
-            'description' => 'e.g. document hosting, recruitment tools, sales materials, client resources',
+            'description' => 'e.g. document hosting, recruitment tools, sales materials, client resources, etc.',
             'required'    => false,
             'summary'     => true,
         ],
@@ -93,17 +89,19 @@ If you think of anything else later, feel free to send it on.',
         [
             'key'      => 'improve_areas',
             'type'     => 'ranking',
-            'label'    => 'Rank which areas the website should improve most',
+            'label'    => 'What should the new website prioritise most?',
+            'description' => 'Click and drag to reorder the list. 1 is the highest priority.',
             'required' => true,
             'summary'  => true,
             'items'    => [
-                'Explaining what Indigo does',
-                'Demonstrating credibility',
-                'Supporting sales conversations',
+                'Explaining Indigo’s services and capabilities',
+                'Demonstrating Indigo’s credibility and experience',
+                'Supporting new business enquiries',
+                'Supporting sales activity',
                 'Recruitment and careers',
-                'Internal or client resources',
-                'News/insights',
-                'Handling enquiries',
+                'Client and internal resources',
+                'News and insights',
+                'Handling general enquiries',
             ],
         ],
 
@@ -118,7 +116,7 @@ If you think of anything else later, feel free to send it on.',
         [
             'key'         => 'anything_else',
             'type'        => 'textarea',
-            'label'       => 'Anything else we should consider?',
+            'label'       => 'Is there anything not considered in this survey that you would like to share?',
             'required'    => false,
             'summary'     => true,
         ],
