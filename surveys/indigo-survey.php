@@ -8,7 +8,7 @@ return [
     'title'       => 'Indigo Website Survey',
     'description' => 'We’re reviewing the Indigo website to understand how it should better support the business. Please answer honestly. Responses will be used to identify overall themes and won’t be attributed to individuals.
 
-The survey should take about 5 minutes.Thanks for your time.',
+The survey should take about 5 minutes. Thanks for your time.',
     'thank_you_title' => 'Thanks for your input!',
     'thank_you'       => 'Your feedback will directly help shape the direction of the website.
     
