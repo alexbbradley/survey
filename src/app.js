@@ -267,11 +267,36 @@ import EmblaCarousel from 'embla-carousel';
 
   /** Get the flat list of questions inside a step (group or single). */
   function getStepQuestions(step) {
-    return step.type === 'group' ? step.questions : [step];
+    if (!step || typeof step !== 'object') return [];
+    if (step.type === 'group') {
+      return Array.isArray(step.questions)
+        ? step.questions.filter(q => q && typeof q === 'object')
+        : [];
+    }
+    return [step];
+  }
+
+  function getSurveyStepsCount() {
+    return Array.isArray(state.survey?.questions) ? state.survey.questions.length : 0;
+  }
+
+  function clampSurveyProgress() {
+    const total = getSurveyStepsCount();
+    if (!total) {
+      throw new Error('Survey has no questions configured');
+    }
+    const maxIndex = total - 1;
+    if (state.currentQuestion > maxIndex) state.currentQuestion = maxIndex;
+    if (state.maxReached > maxIndex) state.maxReached = maxIndex;
+    if (state.currentQuestion < -1) state.currentQuestion = -1;
+    if (state.maxReached < 0) state.maxReached = 0;
   }
 
   function renderSurvey() {
-    const steps = state.survey.questions;
+    const steps = Array.isArray(state.survey?.questions) ? state.survey.questions : [];
+    if (!steps.length) {
+      return renderNotFound();
+    }
 
     // Intro page
     if (state.currentQuestion === -1) {
@@ -288,9 +313,15 @@ import EmblaCarousel from 'embla-carousel';
     }
 
     const step   = steps[state.currentQuestion];
+    if (!step || typeof step !== 'object') {
+      return renderNotFound();
+    }
     const isLast = state.currentQuestion === steps.length - 1;
     const isGroup = step.type === 'group';
     const questions = getStepQuestions(step);
+    if (!questions.length) {
+      return renderNotFound();
+    }
 
     // Keyboard hint: hide if any field is textarea/radio/ranking
     const hasTextarea = questions.some(q => q.type === 'textarea');
@@ -1158,6 +1189,7 @@ import EmblaCarousel from 'embla-carousel';
       // 2. Load survey definition
       try {
         state.survey = await api(`get_survey&slug=${slug}`);
+        clampSurveyProgress();
       } catch (_) {
         state.page = 'not_found';
         rerenderApp();
@@ -1199,6 +1231,7 @@ import EmblaCarousel from 'embla-carousel';
         const isNew = session.current_question === 0 && Object.keys(state.answers).length === 0;
         state.currentQuestion = isNew ? -1 : session.current_question;
         state.maxReached      = session.current_question;
+        clampSurveyProgress();
         state.page            = 'survey';
       } catch (err) {
         if (err.message === 'already_completed') {
