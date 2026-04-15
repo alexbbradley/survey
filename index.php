@@ -22,7 +22,8 @@ $pageDesc  = $survey ? trim(explode("\n", $survey['description'] ?? '')[0]) : ''
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <?php if (APP_ENV === 'production'): ?>
-    <link rel="stylesheet" href="dist/bundle.css">
+    <?php $cssVer = @filemtime(__DIR__ . '/dist/bundle.css') ?: time(); ?>
+    <link rel="stylesheet" href="dist/bundle.css?v=<?= $cssVer ?>">
   <?php endif; ?>
 </head>
 
@@ -51,7 +52,8 @@ $pageDesc  = $survey ? trim(explode("\n", $survey['description'] ?? '')[0]) : ''
   <?php if (APP_ENV === 'development'): ?>
     <script src="http://localhost:<?= WEBPACK_DEV_PORT ?>/survey/bundle.js"></script>
   <?php else: ?>
-    <script src="dist/bundle.js"></script>
+    <?php $jsVer = @filemtime(__DIR__ . '/dist/bundle.js') ?: time(); ?>
+    <script src="dist/bundle.js?v=<?= $jsVer ?>"></script>
   <?php endif; ?>
 </body>
 
