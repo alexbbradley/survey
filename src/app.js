@@ -47,10 +47,45 @@ import EmblaCarousel from 'embla-carousel';
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res  = await fetch(`api.php?action=${action}`, opts);
-    const json = await res.json().catch(() => ({ error: 'Invalid server response' }));
-    if (!res.ok) { const e = new Error(json.error || 'Request failed'); e.data = json; throw e; }
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 20000);
+    opts.signal = ctrl.signal;
+    let res;
+    try {
+      res = await fetch(`api.php?action=${action}`, opts);
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Request timed out — check your connection');
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    let json, parseFailed = false;
+    try { json = await res.json(); } catch (_) { parseFailed = true; json = {}; }
+    if (!res.ok || parseFailed) {
+      const e = new Error(json.error || (parseFailed ? 'Invalid server response' : 'Request failed'));
+      e.data = json;
+      throw e;
+    }
     return json;
+  }
+
+  function showFatalError(err) {
+    console.error('Survey app failed to initialise:', err);
+    if (window.__shownError) return;
+    window.__shownError = true;
+    if (window.__loadGuard) clearTimeout(window.__loadGuard);
+    const app = document.getElementById('app');
+    if (!app) return;
+    const detail = err && err.message ? String(err.message).replace(/[<>&]/g, '') : '';
+    app.innerHTML =
+      '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a1a;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">' +
+        '<div style="max-width:420px;width:100%;background:#222;border:1px solid #383838;border-radius:12px;padding:28px;text-align:center;color:#fffbf5;">' +
+          '<h1 style="font-size:18px;font-weight:600;margin:0 0 8px;">Something went wrong</h1>' +
+          '<p style="font-size:14px;color:#909090;margin:0 0 20px;line-height:1.5;">We couldn\'t load the survey. Please check your connection and try again.</p>' +
+          '<button onclick="location.reload()" style="background:#b8ff5c;color:#1a1a1a;border:0;border-radius:10px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;">Reload</button>' +
+          (detail ? '<p style="font-size:11px;color:#606060;margin:16px 0 0;word-break:break-word;">' + detail + '</p>' : '') +
+        '</div>' +
+      '</div>';
   }
 
   function toast(msg, type) {
@@ -139,9 +174,15 @@ import EmblaCarousel from 'embla-carousel';
   }
 
   // ── Render app ─────────────────────────────────────────────────────────────
+  let mounted = false;
   function rerenderApp() {
     const app = document.getElementById('app');
     if (!app) return;
+    if (!mounted && state.page !== 'loading') {
+      mounted = true;
+      window.__APP_MOUNTED = true;
+      if (window.__loadGuard) clearTimeout(window.__loadGuard);
+    }
     switch (state.page) {
       case 'loading':
         app.innerHTML = `<div class="flex items-center justify-center h-screen bg-[#1a1a1a] text-[#909090]">Loading…</div>`;
@@ -1184,6 +1225,6 @@ import EmblaCarousel from 'embla-carousel';
     rerenderApp();
   }
 
-  init();
+  init().catch(err => showFatalError(err));
 
 })();
