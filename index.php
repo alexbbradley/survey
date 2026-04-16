@@ -2,6 +2,12 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/functions.php';
 $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['s'] ?? ''));
+
+if ($slug === 'indigo-survey') {
+    header('Location: https://v44tkjfbubc.typeform.com/to/tEHkwtpI');
+    exit;
+}
+
 $view = $_GET['view'] ?? '';
 $survey = $slug ? loadSurvey($slug) : null;
 $pageTitle = $survey ? $survey['title'] : APP_NAME;
