@@ -325,7 +325,7 @@ import EmblaCarousel from 'embla-carousel';
 
     // Keyboard hint: hide if any field is textarea/radio/ranking
     const hasTextarea = questions.some(q => q.type === 'textarea');
-    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking');
+    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking' || q.type === 'checkbox');
     const kbHint = hasChoiceOnly ? ''
       : hasTextarea ? `Press <kbd>Ctrl</kbd> + <kbd>Enter ↵</kbd> to continue`
       : `Press <kbd>Enter ↵</kbd> to continue`;
@@ -337,7 +337,7 @@ import EmblaCarousel from 'embla-carousel';
       ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
          <div class="flex flex-col gap-12 w-full">
            ${questions.map(q => {
-             const useLabel = q.type !== 'radio' && q.type !== 'ranking';
+             const useLabel = q.type !== 'radio' && q.type !== 'ranking' && q.type !== 'checkbox';
              const tag = useLabel ? 'label' : 'p';
              const forAttr = useLabel ? ` for="q-${esc(q.key)}"` : '';
              return `
@@ -352,9 +352,9 @@ import EmblaCarousel from 'embla-carousel';
              </div>`;
            }).join('')}
          </div>`
-      : `<${step.type !== 'radio' && step.type !== 'ranking' ? `label for="q-${esc(step.key)}"` : 'p'} class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-3 leading-tight block">
+      : `<${step.type !== 'radio' && step.type !== 'ranking' && step.type !== 'checkbox' ? `label for="q-${esc(step.key)}"` : 'p'} class="text-xl sm:text-2xl font-bold text-[#fffbf5] mb-3 leading-tight block">
            ${esc(step.label)}${step.required ? ' <span class="text-red">*</span>' : ''}
-         </${step.type !== 'radio' && step.type !== 'ranking' ? 'label' : 'p'}>
+         </${step.type !== 'radio' && step.type !== 'ranking' && step.type !== 'checkbox' ? 'label' : 'p'}>
          ${descHtml(step)}
          <div class="w-full mt-5" id="question-input-wrap">
            ${renderQuestionInput(step)}
@@ -416,6 +416,8 @@ import EmblaCarousel from 'embla-carousel';
         return `<textarea id="${id}" class="${T.ta} xl:text-lg text-base" maxlength="5000" placeholder="${esc(q.placeholder || '')}">${esc(saved)}</textarea>`;
       case 'radio':
         return renderRadioOptions(q, saved);
+      case 'checkbox':
+        return renderCheckboxOptions(q, saved);
       case 'ranking':
         return renderRankingWidget(q, saved);
       default:
@@ -435,6 +437,30 @@ import EmblaCarousel from 'embla-carousel';
           <input type="radio" name="${name}" value="${esc(value)}" class="sr-only" ${checked ? 'checked' : ''}>
           <span class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green' : 'border-[#484848]'}">
             ${checked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : ''}
+          </span>
+          <div class="flex flex-col">
+            <span class="text-[#fffbf5] text-[16px]">${esc(label)}</span>
+            ${desc ? `<span class="text-[#909090] text-sm mt-0.5">${esc(desc)}</span>` : ''}
+          </div>
+        </label>`;
+      }).join('') +
+    `</div>`;
+  }
+
+  function renderCheckboxOptions(q, saved) {
+    let selected = [];
+    try { const p = JSON.parse(saved); if (Array.isArray(p)) selected = p; } catch (_) {}
+    const maxHint = q.max ? `<p class="text-xs text-[#484848] mb-3">Select up to ${q.max}</p>` : '';
+    return maxHint + `<div class="checkbox-group flex flex-col gap-3 w-full max-w-lg" data-checkbox-key="${esc(q.key)}" data-checkbox-max="${q.max || 0}">` +
+      q.options.map(opt => {
+        const label = typeof opt === 'object' ? opt.label : opt;
+        const desc  = typeof opt === 'object' ? opt.description : '';
+        const value = label;
+        const checked = selected.includes(value);
+        return `<label class="flex items-center gap-4 px-5 py-4 rounded-xl border ${checked ? 'border-green bg-green/10' : 'border-[#383838] bg-[#222222]'} cursor-pointer hover:border-green/60 transition-colors">
+          <input type="checkbox" value="${esc(value)}" class="sr-only" ${checked ? 'checked' : ''}>
+          <span class="w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green bg-green' : 'border-[#484848]'}">
+            ${checked ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
           </span>
           <div class="flex flex-col">
             <span class="text-[#fffbf5] text-[16px]">${esc(label)}</span>
@@ -536,6 +562,27 @@ import EmblaCarousel from 'embla-carousel';
         });
       });
 
+      // Checkbox: update visuals, enforce max
+      if (q.type === 'checkbox') {
+        const container = document.querySelector(`[data-checkbox-key="${q.key}"]`);
+        if (container) {
+          const max = parseInt(container.dataset.checkboxMax, 10) || 0;
+          container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+              const checked = [...container.querySelectorAll('input[type="checkbox"]:checked')];
+              if (max && checked.length > max) {
+                cb.checked = false;
+                showValidationError(`You can only select up to ${max}`);
+                return;
+              }
+              const selected = checked.map(x => x.value);
+              state.answers[q.key] = JSON.stringify(selected);
+              updateCheckboxVisuals(q.key);
+            });
+          });
+        }
+      }
+
       // Ranking drag-and-drop
       if (q.type === 'ranking') {
         initRankingDrag(q);
@@ -544,7 +591,7 @@ import EmblaCarousel from 'embla-carousel';
 
     // Keyboard shortcut
     const hasTextarea = questions.some(q => q.type === 'textarea');
-    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking');
+    const hasChoiceOnly = questions.every(q => q.type === 'radio' || q.type === 'ranking' || q.type === 'checkbox');
     const keyHandler = (e) => {
       if (hasChoiceOnly) return;
       if (hasTextarea) {
@@ -582,6 +629,30 @@ import EmblaCarousel from 'embla-carousel';
     });
   }
 
+  function updateCheckboxVisuals(key) {
+    const container = document.querySelector(`[data-checkbox-key="${key}"]`);
+    if (!container) return;
+    container.querySelectorAll('label').forEach(label => {
+      const input = label.querySelector('input[type="checkbox"]');
+      const box   = label.querySelector('span:nth-child(2)');
+      const isChecked = input && input.checked;
+
+      label.classList.toggle('border-green',     isChecked);
+      label.classList.toggle('bg-green/10',      isChecked);
+      label.classList.toggle('border-[#383838]', !isChecked);
+      label.classList.toggle('bg-[#222222]',     !isChecked);
+
+      if (box) {
+        box.classList.toggle('border-green', isChecked);
+        box.classList.toggle('bg-green',     isChecked);
+        box.classList.toggle('border-[#484848]', !isChecked);
+        box.innerHTML = isChecked
+          ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          : '';
+      }
+    });
+  }
+
   function focusInput() {
     setTimeout(() => {
       const step = state.survey?.questions?.[state.currentQuestion];
@@ -603,6 +674,12 @@ import EmblaCarousel from 'embla-carousel';
       }
       case 'ranking':
         return getRankingValue(q.key) || state.answers[q.key] || '';
+      case 'checkbox': {
+        const container = document.querySelector(`[data-checkbox-key="${q.key}"]`);
+        if (!container) return state.answers[q.key] || '';
+        const checked = [...container.querySelectorAll('input[type="checkbox"]:checked')].map(x => x.value);
+        return JSON.stringify(checked);
+      }
       default: {
         const el = document.getElementById(`q-${q.key}`);
         return el ? el.value : (state.answers[q.key] || '');
@@ -632,7 +709,11 @@ import EmblaCarousel from 'embla-carousel';
     for (const q of questions) {
       const value = getInputValue(q);
       if (q.required && q.type === 'ranking' && !state.answers[q.key]) return 'Please drag the items to set your preferred order.';
-      if (q.required && !value.trim()) return `Please answer: ${q.label}`;
+      if (q.required && q.type === 'checkbox') {
+        try { const arr = JSON.parse(value); if (!Array.isArray(arr) || arr.length === 0) return `Please answer: ${q.label}`; }
+        catch (_) { return `Please answer: ${q.label}`; }
+      }
+      if (q.required && q.type !== 'checkbox' && !value.trim()) return `Please answer: ${q.label}`;
       if (q.type === 'email' && value && !isValidEmail(value)) return 'Please enter a valid email address.';
       if (q.type === 'url' && value && !isValidUrl(value)) return 'Please enter a valid URL (include https://).';
     }
@@ -942,10 +1023,20 @@ import EmblaCarousel from 'embla-carousel';
 
       if (!answers.length) return '';
 
-      // For radio questions, show a tally instead of cards
-      if (q.type === 'radio') {
+      // For radio/checkbox questions, show a tally instead of cards
+      if (q.type === 'radio' || q.type === 'checkbox') {
         const tally = {};
-        answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
+        answers.forEach(a => {
+          if (q.type === 'checkbox') {
+            try {
+              const arr = JSON.parse(a.value);
+              if (Array.isArray(arr)) arr.forEach(opt => { tally[opt] = (tally[opt] || 0) + 1; });
+            } catch (_) {}
+          } else {
+            tally[a.value] = (tally[a.value] || 0) + 1;
+          }
+        });
+        if (!Object.keys(tally).length) return '';
         const maxCount = Math.max(...Object.values(tally));
         const bars = Object.entries(tally)
           .sort((a, b) => b[1] - a[1])
@@ -1007,10 +1098,10 @@ import EmblaCarousel from 'embla-carousel';
       const cells = questions.map(q => {
         const raw = s.answers?.[q.key] ?? '';
         let display = raw;
-        if (q.type === 'ranking') {
+        if (q.type === 'ranking' || q.type === 'checkbox') {
           try {
             const arr = JSON.parse(raw);
-            if (Array.isArray(arr)) display = arr.join(' > ');
+            if (Array.isArray(arr)) display = arr.join(q.type === 'ranking' ? ' > ' : ', ');
           } catch (_) {}
         }
         return `<td class="px-3 py-2 text-sm text-[#909090] max-w-[180px] truncate" title="${esc(display)}">${esc(display)}</td>`;

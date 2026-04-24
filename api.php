@@ -464,11 +464,16 @@ try {
                     $row['completed_at'] ?? '',
                     $row['ip_address'],
                 ];
-                foreach ($keys as $key) {
+                foreach ($questions as $qDef) {
+                    $key     = $qDef['key'];
                     $val     = $answerMap[$row['id']][$key] ?? '';
                     $decoded = json_decode($val, true);
-                    // Ranking answers stored as JSON array — decode to "A > B > C" format
-                    $line[] = is_array($decoded) ? implode(' > ', $decoded) : $val;
+                    if (is_array($decoded)) {
+                        $sep = ($qDef['type'] ?? '') === 'ranking' ? ' > ' : ', ';
+                        $line[] = implode($sep, $decoded);
+                    } else {
+                        $line[] = $val;
+                    }
                 }
                 fputcsv($fh, $line);
             }
