@@ -214,9 +214,15 @@ import EmblaCarousel from 'embla-carousel';
     if (!state.isLoggedIn) {
       return `
         <div class="flex flex-col items-center justify-center min-h-screen bg-[#1a1a1a] px-6">
-          <h1 class="text-2xl font-bold text-[#fffbf5] mb-2">Survey App</h1>
-          <p class="text-[#909090] mb-8 text-sm">Admin login required</p>
-          <button id="btn-login" class="${T.btn} ${T.md} ${T.primary}">Log in</button>
+          <div class="max-w-md w-full text-center">
+            <h1 class="text-2xl font-bold text-[#fffbf5] mb-3">Survey Admin</h1>
+            <p class="text-[#909090] mb-2 text-sm leading-relaxed">This area is for administrators only.</p>
+            <p class="text-[#909090] mb-8 text-sm leading-relaxed">
+              If you're here to complete a survey, please check the link you were sent. Survey links look like
+              <code class="text-green font-mono bg-[#222222] px-1.5 py-0.5 rounded text-xs">/?s=survey-name</code>.
+            </p>
+            <button id="btn-login" class="${T.btn} ${T.md} ${T.primary}">Log in</button>
+          </div>
         </div>`;
     }
 
