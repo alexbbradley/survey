@@ -160,6 +160,7 @@ import EmblaCarousel from 'embla-carousel';
     // Admin
     surveys:      [],   // [{slug, title}] for home page
     responsesData: null, // { questions[], sessions[] }
+    selectedSessions: new Set(), // tokens of sessions selected for bulk actions
     // UI
     saving: false,
     _keyHandler: null,
@@ -939,7 +940,7 @@ import EmblaCarousel from 'embla-carousel';
       </div>`;
   }
 
-  // ── Ranking charts (Borda count) ────────────────────────────────────────────
+  // ── Bar charts (ranking + checkbox tallies) ───────────────────────────────
   /**
    * Borda count: for N items, 1st place = N pts, 2nd = N-1, … last = 1.
    * Returns sorted array of { label, score, pct }.
@@ -962,50 +963,217 @@ import EmblaCarousel from 'embla-carousel';
     });
 
     const maxScore = Math.max(...Object.values(scores));
-    return Object.entries(scores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, score]) => ({
-        label,
-        score,
-        pct: maxScore > 0 ? Math.round((score / maxScore) * 100) : 0,
-      }));
+    return {
+      bars: Object.entries(scores)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, score]) => ({
+          label,
+          score,
+          pct: maxScore > 0 ? Math.round((score / maxScore) * 100) : 0,
+        })),
+      responseCount: validAnswers.length,
+    };
   }
 
-  function renderRankingCharts(questions, sessions) {
-    const rankingQs = questions.filter(q => q.type === 'ranking');
-    if (!rankingQs.length) return '';
+  /** Tally selections across sessions for a checkbox question. */
+  function buildCheckboxChart(q, sessions) {
+    const tally = {};
+    let responseCount = 0;
+    sessions.forEach(s => {
+      const raw = (s.answers?.[q.key] ?? '').trim();
+      if (!raw) return;
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length) {
+          responseCount++;
+          arr.forEach(opt => { tally[opt] = (tally[opt] || 0) + 1; });
+        }
+      } catch (_) {}
+    });
+    if (!Object.keys(tally).length) return null;
+    const max = Math.max(...Object.values(tally));
+    return {
+      bars: Object.entries(tally)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, score]) => ({
+          label,
+          score,
+          pct: max > 0 ? Math.round((score / max) * 100) : 0,
+        })),
+      responseCount,
+    };
+  }
 
-    return rankingQs.map(q => {
-      const num = getQuestionNumber(questions, q.key);
-      const data = buildRankingChart(q, sessions);
-      if (!data) return '';
+  /** Vertical bars HTML for the dark-themed admin display. */
+  function renderVerticalBars(data) {
+    const cols = data.map((d, i) => `
+      <div class="flex flex-col items-center gap-1 flex-1 min-w-0 h-full">
+        <div class="text-xs text-[#fffbf5] font-semibold flex-shrink-0">${d.score}</div>
+        <div class="w-full flex-1 flex items-end min-h-0">
+          <div class="w-full rounded-t ${i === 0 ? 'bg-green' : 'bg-[#484848]'} transition-all"
+               style="height:${Math.max(d.pct, 4)}%; min-height:6px"></div>
+        </div>
+      </div>`).join('');
 
-      const bars = data.map((d, i) => `
-        <div class="flex items-center gap-3">
-          <span class="text-xs text-[#909090] w-5 text-right flex-shrink-0">${i + 1}.</span>
-          <div class="flex-1 flex items-center gap-3">
-            <div class="flex-1 bg-[#2a2a2a] rounded-full h-7 overflow-hidden">
-              <div class="h-full rounded-full flex items-center px-3 transition-all duration-500
-                ${i === 0 ? 'bg-green/40' : 'bg-[#383838]'}"
-                style="width:${Math.max(d.pct, 8)}%">
-                <span class="text-xs text-[#fffbf5] truncate">${esc(d.label)}</span>
-              </div>
-            </div>
-            <span class="text-xs text-[#484848] w-10 text-right flex-shrink-0">${d.score} pts</span>
-          </div>
-        </div>`).join('');
+    const labels = data.map(d => `
+      <div class="flex-1 min-w-0 text-center text-[11px] text-[#909090] leading-tight px-1 break-words">${esc(d.label)}</div>
+    `).join('');
 
-      const respCount = sessions.filter(s => { try { return JSON.parse(s.answers?.[q.key] || '').length === q.items.length; } catch(_) { return false; } }).length;
+    return `
+      <div class="flex items-stretch gap-2" style="height:200px">${cols}</div>
+      <div class="flex items-start gap-2 mt-3">${labels}</div>`;
+  }
+
+  function renderBarCharts(questions, sessions) {
+    const chartQs = questions.filter(q =>
+      q.type === 'ranking' || (q.type === 'checkbox' && q.summary)
+    );
+    if (!chartQs.length) return '';
+
+    return chartQs.map(q => {
+      const num    = getQuestionNumber(questions, q.key);
+      const result = q.type === 'ranking' ? buildRankingChart(q, sessions) : buildCheckboxChart(q, sessions);
+      if (!result) return '';
+
+      const footer = q.type === 'ranking'
+        ? `Borda count — ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} weighted (1st = ${q.items.length} pts, last = 1 pt)`
+        : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
 
       return `
         <div class="mb-6">
-          <h3 class="text-sm font-semibold text-[#fffbf5] mb-3"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}</h3>
+          <div class="flex items-start justify-between mb-3 gap-3">
+            <h3 class="text-sm font-semibold text-[#fffbf5] flex-1">
+              <span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}
+            </h3>
+            <button data-chart-download="${esc(q.key)}" class="${T.btn} ${T.sm} ${T.outline} flex-shrink-0">Download PNG</button>
+          </div>
           <div class="bg-[#222222] border border-[#383838] rounded-xl p-5">
-            <div class="flex flex-col gap-2">${bars}</div>
-            <p class="text-xs text-[#484848] mt-3">Borda count — ${respCount} response${respCount !== 1 ? 's' : ''} weighted (1st = ${q.items.length} pts, last = 1 pt)</p>
+            ${renderVerticalBars(result.bars)}
+            <p class="text-xs text-[#484848] mt-4">${footer}</p>
           </div>
         </div>`;
     }).join('');
+  }
+
+  /** Wrap text to fit a max width (canvas measureText). */
+  function wrapText(ctx, text, maxWidth) {
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+      const test = current ? current + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  /** Render a vertical bar chart to PNG (white background, black text) and trigger download. */
+  function downloadChartAsPNG(filename, title, subtitle, data) {
+    const W = 1200;
+    const padTop = 110, padBot = 240, padLeft = 80, padRight = 60;
+    const H = 740;
+    const chartH = H - padTop - padBot;
+    const chartW = W - padLeft - padRight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#000000';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+
+    // Title (wrapped)
+    ctx.font = '600 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const titleLines = wrapText(ctx, title, W - padLeft - padRight);
+    titleLines.slice(0, 2).forEach((line, i) => {
+      ctx.fillText(line, padLeft, 24 + i * 28);
+    });
+
+    // Subtitle / footer note up top
+    if (subtitle) {
+      ctx.font = '13px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#444444';
+      ctx.fillText(subtitle, padLeft, 24 + Math.min(titleLines.length, 2) * 28 + 4);
+      ctx.fillStyle = '#000000';
+    }
+
+    if (!data.length) {
+      canvas.toBlob(downloadBlob(filename), 'image/png');
+      return;
+    }
+
+    const max = Math.max(...data.map(d => d.score)) || 1;
+    const colW = chartW / data.length;
+    const barW = Math.min(colW * 0.65, 110);
+    const barX = (i) => padLeft + i * colW + (colW - barW) / 2;
+
+    // Baseline
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, padTop + chartH + 0.5);
+    ctx.lineTo(padLeft + chartW, padTop + chartH + 0.5);
+    ctx.stroke();
+
+    data.forEach((d, i) => {
+      const x = barX(i);
+      const h = (d.score / max) * chartH;
+      const y = padTop + chartH - h;
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(x, y, barW, h);
+
+      // Score above bar
+      ctx.font = '600 15px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#000000';
+      ctx.fillText(String(d.score), x + barW / 2, y - 6);
+
+      // Rank number above the score (1, 2, 3, …)
+      ctx.font = '12px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#666666';
+      ctx.fillText('#' + (i + 1), x + barW / 2, y - 24);
+
+      // Rotated label below baseline
+      ctx.save();
+      ctx.translate(x + barW / 2, padTop + chartH + 12);
+      ctx.rotate(-Math.PI / 4);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.font = '14px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#000000';
+      const label = d.label.length > 60 ? d.label.slice(0, 57) + '…' : d.label;
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    });
+
+    canvas.toBlob(downloadBlob(filename), 'image/png');
+  }
+
+  function downloadBlob(filename) {
+    return (blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 200);
+    };
   }
 
   // ── Answer summary carousels ────────────────────────────────────────────────
@@ -1015,7 +1183,10 @@ import EmblaCarousel from 'embla-carousel';
   }
 
   function renderAnswerSummaries(questions, sessions) {
-    const summaryQs = questions.filter(q => q.summary && q.type !== 'ranking');
+    // Ranking and checkbox questions are rendered by renderBarCharts instead.
+    const summaryQs = questions.filter(q =>
+      q.summary && q.type !== 'ranking' && q.type !== 'checkbox'
+    );
     if (!summaryQs.length || !sessions.length) return '';
 
     let carouselId = 0;
@@ -1029,19 +1200,10 @@ import EmblaCarousel from 'embla-carousel';
 
       if (!answers.length) return '';
 
-      // For radio/checkbox questions, show a tally instead of cards
-      if (q.type === 'radio' || q.type === 'checkbox') {
+      // Radio: tally with horizontal bars
+      if (q.type === 'radio') {
         const tally = {};
-        answers.forEach(a => {
-          if (q.type === 'checkbox') {
-            try {
-              const arr = JSON.parse(a.value);
-              if (Array.isArray(arr)) arr.forEach(opt => { tally[opt] = (tally[opt] || 0) + 1; });
-            } catch (_) {}
-          } else {
-            tally[a.value] = (tally[a.value] || 0) + 1;
-          }
-        });
+        answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
         if (!Object.keys(tally).length) return '';
         const maxCount = Math.max(...Object.values(tally));
         const bars = Object.entries(tally)
@@ -1096,9 +1258,15 @@ import EmblaCarousel from 'embla-carousel';
   function renderResponses() {
     const { questions, sessions } = state.responsesData || { questions: [], sessions: [] };
 
+    // Drop selections that no longer exist in the current session list
+    const validTokens = new Set(sessions.map(s => s.session_token));
+    [...state.selectedSessions].forEach(t => { if (!validTokens.has(t)) state.selectedSessions.delete(t); });
+
     const colHeaders = questions.map(q =>
       `<th class="px-3 py-2 text-left text-xs font-medium text-[#909090] whitespace-nowrap max-w-[180px]">${esc(q.label)}</th>`
     ).join('');
+
+    const allChecked = sessions.length > 0 && sessions.every(s => state.selectedSessions.has(s.session_token));
 
     const rows = sessions.map(s => {
       const cells = questions.map(q => {
@@ -1117,7 +1285,13 @@ import EmblaCarousel from 'embla-carousel';
         ? `<span class="text-green text-xs">${esc(s.completed_at)}</span>`
         : `<span class="text-[#484848] text-xs">partial</span>`;
 
-      return `<tr class="border-b border-[#383838] hover:bg-[#2a2a2a]">
+      const isChecked = state.selectedSessions.has(s.session_token);
+
+      return `<tr class="border-b border-[#383838] hover:bg-[#2a2a2a] ${isChecked ? 'bg-[#2a2a2a]' : ''}">
+        <td class="px-3 py-2 text-center">
+          <input type="checkbox" class="row-select cursor-pointer accent-green w-4 h-4"
+                 data-session-token="${esc(s.session_token)}" ${isChecked ? 'checked' : ''}>
+        </td>
         <td class="px-3 py-2 text-xs font-mono text-[#484848]">${esc(s.session_token.substring(0, 8))}…</td>
         <td class="px-3 py-2 text-xs text-[#909090] whitespace-nowrap">${esc(s.created_at)}</td>
         <td class="px-3 py-2 whitespace-nowrap">${completed}</td>
@@ -1127,10 +1301,12 @@ import EmblaCarousel from 'embla-carousel';
     }).join('');
 
     const emptyState = sessions.length === 0
-      ? `<tr><td colspan="${4 + questions.length}" class="px-3 py-10 text-center text-[#484848] text-sm">No responses yet.</td></tr>`
+      ? `<tr><td colspan="${5 + questions.length}" class="px-3 py-10 text-center text-[#484848] text-sm">No responses yet.</td></tr>`
       : '';
 
     const completedCount = sessions.filter(s => s.completed_at).length;
+    const selCount = state.selectedSessions.size;
+    const bulkBarHidden = selCount === 0 ? 'hidden' : '';
 
     return `
       <div class="min-h-screen bg-[#1a1a1a]">
@@ -1154,11 +1330,21 @@ import EmblaCarousel from 'embla-carousel';
             ${sessions.length - completedCount} partial
           </p>
           ${renderAnswerSummaries(questions, sessions)}
-          ${renderRankingCharts(questions, sessions)}
+          ${renderBarCharts(questions, sessions)}
+          <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#222222] border border-[#383838]">
+            <span class="text-sm text-[#fffbf5]"><span id="bulk-count">${selCount}</span> selected</span>
+            <div class="flex items-center gap-2">
+              <button id="btn-clear-selection" class="${T.btn} ${T.sm} ${T.outline}">Clear selection</button>
+              <button id="btn-delete-selected" class="${T.btn} ${T.sm} ${T.danger}">Delete selected</button>
+            </div>
+          </div>
           <div class="overflow-x-auto rounded-xl border border-[#383838]">
             <table class="w-full bg-[#222222]">
               <thead class="border-b border-[#383838] bg-[#2a2a2a]">
                 <tr>
+                  <th class="px-3 py-2 text-center w-10">
+                    <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
+                  </th>
                   <th class="px-3 py-2 text-left text-xs font-medium text-[#909090]">Session</th>
                   <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] whitespace-nowrap">Started</th>
                   <th class="px-3 py-2 text-left text-xs font-medium text-[#909090]">Status</th>
@@ -1194,12 +1380,100 @@ import EmblaCarousel from 'embla-carousel';
       try {
         const r = await api('clear_responses', 'POST', { slug: state.surveySlug });
         toast(`Cleared ${r.deleted} response${r.deleted !== 1 ? 's' : ''}.`, 'success');
+        state.selectedSessions.clear();
         const fresh = await api(`get_responses&slug=${state.surveySlug}`);
         state.responsesData = fresh;
         rerenderApp();
       } catch (err) {
         toast(err.message, 'error');
       }
+    });
+
+    // Row selection
+    const updateBulkBar = () => {
+      const bar = document.getElementById('bulk-actions');
+      const cnt = document.getElementById('bulk-count');
+      const n = state.selectedSessions.size;
+      if (cnt) cnt.textContent = n;
+      if (bar) bar.classList.toggle('hidden', n === 0);
+      const selectAll = document.getElementById('select-all');
+      const sessions = state.responsesData?.sessions || [];
+      if (selectAll) {
+        selectAll.checked = sessions.length > 0 && sessions.every(s => state.selectedSessions.has(s.session_token));
+      }
+    };
+
+    document.querySelectorAll('.row-select').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const token = cb.dataset.sessionToken;
+        if (cb.checked) state.selectedSessions.add(token);
+        else state.selectedSessions.delete(token);
+        cb.closest('tr')?.classList.toggle('bg-[#2a2a2a]', cb.checked);
+        updateBulkBar();
+      });
+    });
+
+    document.getElementById('select-all')?.addEventListener('change', (e) => {
+      const sessions = state.responsesData?.sessions || [];
+      if (e.target.checked) {
+        sessions.forEach(s => state.selectedSessions.add(s.session_token));
+      } else {
+        state.selectedSessions.clear();
+      }
+      document.querySelectorAll('.row-select').forEach(cb => {
+        cb.checked = state.selectedSessions.has(cb.dataset.sessionToken);
+        cb.closest('tr')?.classList.toggle('bg-[#2a2a2a]', cb.checked);
+      });
+      updateBulkBar();
+    });
+
+    document.getElementById('btn-clear-selection')?.addEventListener('click', () => {
+      state.selectedSessions.clear();
+      document.querySelectorAll('.row-select').forEach(cb => {
+        cb.checked = false;
+        cb.closest('tr')?.classList.remove('bg-[#2a2a2a]');
+      });
+      updateBulkBar();
+    });
+
+    document.getElementById('btn-delete-selected')?.addEventListener('click', async () => {
+      const tokens = [...state.selectedSessions];
+      if (!tokens.length) return;
+      const msg = `Delete ${tokens.length} selected response${tokens.length !== 1 ? 's' : ''}? This cannot be undone.`;
+      if (!confirm(msg)) return;
+      try {
+        const r = await api('delete_sessions', 'POST', { slug: state.surveySlug, tokens });
+        toast(`Deleted ${r.deleted} response${r.deleted !== 1 ? 's' : ''}.`, 'success');
+        state.selectedSessions.clear();
+        const fresh = await api(`get_responses&slug=${state.surveySlug}`);
+        state.responsesData = fresh;
+        rerenderApp();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
+    // Chart PNG download
+    document.querySelectorAll('[data-chart-download]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.chartDownload;
+        const { questions, sessions } = state.responsesData || { questions: [], sessions: [] };
+        const q = questions.find(x => x.key === key);
+        if (!q) return;
+        const result = q.type === 'ranking'
+          ? buildRankingChart(q, sessions)
+          : buildCheckboxChart(q, sessions);
+        if (!result || !result.bars.length) {
+          toast('No data to chart yet.', 'error');
+          return;
+        }
+        const subtitle = q.type === 'ranking'
+          ? `Borda count · ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} (1st = ${q.items.length} pts, last = 1 pt)`
+          : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
+        const safeSlug = (state.surveySlug || 'survey').replace(/[^a-z0-9-]+/gi, '-');
+        const safeKey  = (q.key || 'chart').replace(/[^a-z0-9-]+/gi, '-');
+        downloadChartAsPNG(`${safeSlug}-${safeKey}.png`, q.label, subtitle, result.bars);
+      });
     });
   }
 

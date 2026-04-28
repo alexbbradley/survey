@@ -494,6 +494,33 @@ try {
             jsonResponse(['ok' => true, 'deleted' => $deleted]);
             break;
 
+        case 'delete_sessions':
+            requireAdmin();
+            $data   = getInput();
+            $slug   = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            $tokens = $data['tokens'] ?? [];
+
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            if (!is_array($tokens) || !$tokens) { jsonResponse(['error' => 'No sessions selected'], 400); break; }
+
+            $clean = [];
+            foreach ($tokens as $t) {
+                $t = is_string($t) ? trim($t) : '';
+                if (strlen($t) === 64 && ctype_xdigit($t)) $clean[] = $t;
+            }
+            if (!$clean) { jsonResponse(['error' => 'No valid session tokens'], 400); break; }
+
+            $placeholders = implode(',', array_fill(0, count($clean), '?'));
+            $db   = getDB();
+            $stmt = $db->prepare(
+                "DELETE FROM survey_sessions WHERE survey_slug = ? AND session_token IN ($placeholders)"
+            );
+            $stmt->execute(array_merge([$slug], $clean));
+            $deleted = $stmt->rowCount();
+
+            jsonResponse(['ok' => true, 'deleted' => $deleted]);
+            break;
+
         default:
             jsonResponse(['error' => 'Unknown action'], 404);
     }
