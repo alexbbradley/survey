@@ -400,7 +400,7 @@ import EmblaCarousel from 'embla-carousel';
           </div>
           <div class="px-6 sm:px-8 flex gap-0.5 md:gap-1.5 ${isWideStep ? 'max-w-4xl' : 'max-w-2xl'} mx-auto mt-8">${stepBar}</div>
         </div>
-        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-28 pb-16 ${isWideStep ? 'max-w-4xl' : 'max-w-2xl'} mx-auto w-full">
+        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-36 pb-16 ${isWideStep ? 'max-w-4xl' : 'max-w-2xl'} mx-auto w-full">
           <p class="text-sm text-[#909090] mb-4">Page ${state.currentQuestion + 1} of ${steps.length}</p>
           ${body}
           <div id="validation-error" class="hidden text-red text-sm mt-3"></div>
