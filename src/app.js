@@ -325,6 +325,8 @@ import EmblaCarousel from 'embla-carousel';
     }
     const isLast = state.currentQuestion === steps.length - 1;
     const isGroup = step.type === 'group';
+    const isTwoCol = isGroup && step.layout === 'two-col';
+    const isWideStep = isTwoCol;
     const questions = getStepQuestions(step);
     if (!questions.length) {
       return renderNotFound();
@@ -340,9 +342,13 @@ import EmblaCarousel from 'embla-carousel';
     const descHtml = (q) => q.description
       ? `<p class="text-base text-[#909090] mb-3">${esc(q.description)}</p>` : '';
 
+    const groupDescHtml = (isGroup && step.description)
+      ? `<p class="text-base text-[#c0c0c0] mb-6 leading-relaxed">${esc(step.description)}</p>` : '';
+
     const body = isGroup
-      ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-8 leading-tight">${esc(step.label)}</h2>` : ''}
-         <div class="flex flex-col gap-12 w-full">
+      ? `${step.label ? `<h2 class="text-xl sm:text-2xl xl:text-3xl font-bold text-[#fffbf5] mb-4 leading-tight">${esc(step.label)}</h2>` : ''}
+         ${groupDescHtml}
+         <div class="${isTwoCol ? 'grid md:grid-cols-2 gap-10 md:gap-8' : 'flex flex-col gap-12'} w-full"${step.paired_exclusive ? ' data-paired-exclusive="1"' : ''}>
            ${questions.map(q => {
              const useLabel = q.type !== 'radio' && q.type !== 'ranking' && q.type !== 'checkbox';
              const tag = useLabel ? 'label' : 'p';
@@ -354,7 +360,7 @@ import EmblaCarousel from 'embla-carousel';
                </${tag}>
                ${descHtml(q)}
                <div class="w-full" data-question-key="${esc(q.key)}">
-                 ${renderQuestionInput(q)}
+                 ${renderQuestionInput(q, { wide: isTwoCol })}
                </div>
              </div>`;
            }).join('')}
@@ -392,9 +398,9 @@ import EmblaCarousel from 'embla-carousel';
               </div>
             </div>
           </div>
-          <div class="px-6 sm:px-8 flex gap-0.5 md:gap-1.5 max-w-2xl mx-auto mt-8">${stepBar}</div>
+          <div class="px-6 sm:px-8 flex gap-0.5 md:gap-1.5 ${isWideStep ? 'max-w-4xl' : 'max-w-2xl'} mx-auto mt-8">${stepBar}</div>
         </div>
-        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-28 pb-16 max-w-2xl mx-auto w-full">
+        <div class="flex flex-col items-start justify-center min-h-screen px-6 sm:px-8 pt-28 pb-16 ${isWideStep ? 'max-w-4xl' : 'max-w-2xl'} mx-auto w-full">
           <p class="text-sm text-[#909090] mb-4">Page ${state.currentQuestion + 1} of ${steps.length}</p>
           ${body}
           <div id="validation-error" class="hidden text-red text-sm mt-3"></div>
@@ -409,7 +415,7 @@ import EmblaCarousel from 'embla-carousel';
       </div>`;
   }
 
-  function renderQuestionInput(q) {
+  function renderQuestionInput(q, opts) {
     const saved = state.answers[q.key] ?? '';
     const id = `q-${q.key || 'input'}`;
     switch (q.type) {
@@ -424,7 +430,7 @@ import EmblaCarousel from 'embla-carousel';
       case 'radio':
         return renderRadioOptions(q, saved);
       case 'checkbox':
-        return renderCheckboxOptions(q, saved);
+        return renderCheckboxOptions(q, saved, opts);
       case 'ranking':
         return renderRankingWidget(q, saved);
       default:
@@ -454,11 +460,12 @@ import EmblaCarousel from 'embla-carousel';
     `</div>`;
   }
 
-  function renderCheckboxOptions(q, saved) {
+  function renderCheckboxOptions(q, saved, opts) {
     let selected = [];
     try { const p = JSON.parse(saved); if (Array.isArray(p)) selected = p; } catch (_) {}
     const maxHint = q.max ? `<p class="text-xs text-[#484848] mb-3">Select up to ${q.max}</p>` : '';
-    return maxHint + `<div class="checkbox-group flex flex-col gap-3 w-full max-w-lg" data-checkbox-key="${esc(q.key)}" data-checkbox-max="${q.max || 0}">` +
+    const widthCls = opts && opts.wide ? 'w-full' : 'w-full max-w-lg';
+    return maxHint + `<div class="checkbox-group flex flex-col gap-3 ${widthCls}" data-checkbox-key="${esc(q.key)}" data-checkbox-max="${q.max || 0}">` +
       q.options.map(opt => {
         const label = typeof opt === 'object' ? opt.label : opt;
         const desc  = typeof opt === 'object' ? opt.description : '';
@@ -585,6 +592,10 @@ import EmblaCarousel from 'embla-carousel';
               const selected = checked.map(x => x.value);
               state.answers[q.key] = JSON.stringify(selected);
               updateCheckboxVisuals(q.key);
+
+              // Paired-exclusive: grey out matching values in sibling lists.
+              const pairedGrid = container.closest('[data-paired-exclusive]');
+              if (pairedGrid) syncPairedDisabled(pairedGrid);
             });
           });
         }
@@ -595,6 +606,9 @@ import EmblaCarousel from 'embla-carousel';
         initRankingDrag(q);
       }
     });
+
+    // Initial paired-exclusive sync (covers options pre-checked from saved state)
+    document.querySelectorAll('[data-paired-exclusive]').forEach(grid => syncPairedDisabled(grid));
 
     // Keyboard shortcut
     const hasTextarea = questions.some(q => q.type === 'textarea');
@@ -633,6 +647,36 @@ import EmblaCarousel from 'embla-carousel';
         circle.classList.toggle('border-[#484848]', !isChecked);
         circle.innerHTML = isChecked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : '';
       }
+    });
+  }
+
+  /**
+   * For a paired-exclusive group: grey out any unchecked option whose value
+   * is selected in a sibling list. Items already checked in the current list
+   * are never disabled (so the user can always uncheck their own selection).
+   */
+  function syncPairedDisabled(grid) {
+    const lists = [...grid.querySelectorAll('[data-checkbox-key]')];
+    const selectedByList = new Map();
+    lists.forEach(list => {
+      const vals = new Set([...list.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value));
+      selectedByList.set(list, vals);
+    });
+    lists.forEach(list => {
+      const otherSelected = new Set();
+      selectedByList.forEach((vals, otherList) => {
+        if (otherList === list) return;
+        vals.forEach(v => otherSelected.add(v));
+      });
+      list.querySelectorAll('label').forEach(label => {
+        const cb = label.querySelector('input[type="checkbox"]');
+        if (!cb) return;
+        const shouldDisable = !cb.checked && otherSelected.has(cb.value);
+        cb.disabled = shouldDisable;
+        label.classList.toggle('opacity-40', shouldDisable);
+        label.classList.toggle('pointer-events-none', shouldDisable);
+        label.classList.toggle('cursor-not-allowed', shouldDisable);
+      });
     });
   }
 

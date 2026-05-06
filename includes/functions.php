@@ -219,11 +219,15 @@ function discoverSurveys(): array {
  */
 function sanitizeQuestion(array $q): array {
     if (($q['type'] ?? '') === 'group') {
-        return [
+        $group = [
             'type'      => 'group',
             'label'     => (string)($q['label'] ?? ''),
             'questions' => array_map('sanitizeQuestion', array_values((array)($q['questions'] ?? []))),
         ];
+        if (isset($q['description']))       $group['description']      = (string)$q['description'];
+        if (isset($q['layout']))            $group['layout']           = (string)$q['layout'];
+        if (!empty($q['paired_exclusive'])) $group['paired_exclusive'] = true;
+        return $group;
     }
     $out = [
         'key'      => (string)($q['key'] ?? ''),
