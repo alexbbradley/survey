@@ -532,7 +532,7 @@ try {
             $user = "Survey question: " . $qDef['label'] . "\n\nResponses (" . count($answers) . " total):\n\n" . implode("\n\n", $numbered);
 
             try {
-                $summary = callClaude($system, $user);
+                $summary = callOpenAI($system, $user);
             } catch (Throwable $e) {
                 error_log('generate_ai_summary failed: ' . $e->getMessage());
                 jsonResponse(['error' => 'AI service unavailable. Try again shortly.'], 502);

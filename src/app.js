@@ -12,6 +12,7 @@
     sm:      'px-3 py-1.5 text-xs',
     primary: 'bg-green text-[#1a1a1a] hover:bg-greenlight',
     outline: 'bg-transparent border border-[#383838] text-[#fffbf5] hover:border-[#484848] hover:bg-[#2a2a2a]',
+    outlineLight: 'bg-transparent border border-[#cccccc] text-[#1a1a1a] hover:border-[#a0a0a0] hover:bg-[#f4f4f5]',
     danger:  'bg-red/10 border border-red/40 text-red hover:bg-red/20',
     // Inputs
     inp:     'w-full bg-transparent border-0 border-b-2 border-[#383838] focus:border-green outline-none text-[#fffbf5] py-2 transition-colors placeholder:text-[#484848]',
@@ -1055,19 +1056,19 @@
     };
   }
 
-  /** Vertical bars HTML for the dark-themed admin display. */
+  /** Vertical bars HTML for the responses page (light theme). */
   function renderVerticalBars(data) {
     const cols = data.map((d, i) => `
       <div class="flex flex-col items-center gap-1 flex-1 min-w-0 h-full">
-        <div class="text-xs text-[#fffbf5] font-semibold flex-shrink-0">${d.score}</div>
+        <div class="text-xs text-[#1a1a1a] font-semibold flex-shrink-0">${d.score}</div>
         <div class="w-full flex-1 flex items-end min-h-0">
-          <div class="w-full rounded-t ${i === 0 ? 'bg-green' : 'bg-[#484848]'} transition-all"
+          <div class="w-full rounded-t ${i === 0 ? 'bg-green' : 'bg-[#cccccc]'} transition-all"
                style="height:${Math.max(d.pct, 4)}%; min-height:6px"></div>
         </div>
       </div>`).join('');
 
     const labels = data.map(d => `
-      <div class="flex-1 min-w-0 text-center text-[11px] text-[#909090] leading-tight px-1 break-words">${esc(d.label)}</div>
+      <div class="flex-1 min-w-0 text-center text-[11px] text-[#6b6b6b] leading-tight px-1 break-words">${esc(d.label)}</div>
     `).join('');
 
     return `
@@ -1093,14 +1094,14 @@
       return `
         <div class="mb-6">
           <div class="flex items-start justify-between mb-3 gap-3">
-            <h3 class="text-sm font-semibold text-[#fffbf5] flex-1">
-              <span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}
+            <h3 class="text-sm font-semibold text-[#1a1a1a] flex-1">
+              <span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}
             </h3>
-            <button data-chart-download="${esc(q.key)}" class="${T.btn} ${T.sm} ${T.outline} flex-shrink-0">Download PNG</button>
+            <button data-chart-download="${esc(q.key)}" class="${T.btn} ${T.sm} ${T.outlineLight} flex-shrink-0">View as PNG</button>
           </div>
-          <div class="bg-[#222222] border border-[#383838] rounded-xl p-5">
+          <div class="bg-white border border-[#e5e5e5] rounded-xl p-5">
             ${renderVerticalBars(result.bars)}
-            <p class="text-xs text-[#484848] mt-4">${footer}</p>
+            <p class="text-xs text-[#a0a0a0] mt-4">${footer}</p>
           </div>
         </div>`;
     }).join('');
@@ -1124,11 +1125,11 @@
     return lines;
   }
 
-  /** Render a vertical bar chart to PNG (white background, black text) and trigger download. */
-  function downloadChartAsPNG(filename, title, subtitle, data) {
+  /** Render a vertical bar chart to a Canvas (white background) and return it. */
+  function renderChartCanvas(title, subtitle, data) {
     const W = 1200;
-    const padTop = 110, padBot = 240, padLeft = 80, padRight = 60;
-    const H = 740;
+    const padTop = 180, padBot = 100, padLeft = 80, padRight = 60;
+    const H = 670;
     const chartH = H - padTop - padBot;
     const chartW = W - padLeft - padRight;
 
@@ -1159,10 +1160,7 @@
       ctx.fillStyle = '#000000';
     }
 
-    if (!data.length) {
-      canvas.toBlob(downloadBlob(filename), 'image/png');
-      return;
-    }
+    if (!data.length) return canvas;
 
     const max = Math.max(...data.map(d => d.score)) || 1;
     const colW = chartW / data.length;
@@ -1200,20 +1198,63 @@
       ctx.fillStyle = '#666666';
       ctx.fillText('#' + (i + 1), x + barW / 2, y - 24);
 
-      // Rotated label below baseline
+      // Multi-line label centered horizontally under each bar. Wrap width
+      // is the column width so labels never overlap their neighbours.
       ctx.save();
       ctx.translate(x + barW / 2, padTop + chartH + 12);
-      ctx.rotate(-Math.PI / 4);
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
       ctx.font = '14px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#000000';
-      const label = d.label.length > 60 ? d.label.slice(0, 57) + '…' : d.label;
-      ctx.fillText(label, 0, 0);
+      const wrapWidth = colW - 12;
+      const maxLines  = 3;
+      const lineH     = 17;
+      let lines = wrapText(ctx, d.label || '', wrapWidth);
+      if (lines.length > maxLines) {
+        lines = lines.slice(0, maxLines);
+        lines[maxLines - 1] = lines[maxLines - 1] + '…';
+      }
+      lines.forEach((line, li) => ctx.fillText(line, 0, li * lineH));
       ctx.restore();
     });
 
-    canvas.toBlob(downloadBlob(filename), 'image/png');
+    return canvas;
+  }
+
+  /** Open a modal showing the rendered chart with a Download button. */
+  function openChartPreview(filename, title, subtitle, data) {
+    const canvas  = renderChartCanvas(title, subtitle, data);
+    const dataUrl = canvas.toDataURL('image/png');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 bg-black/60 z-[600] flex items-center justify-center p-5';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-xl w-full max-w-5xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col">
+        <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#e5e5e5]">
+          <span class="text-sm font-semibold text-[#1a1a1a] truncate">${esc(title)}</span>
+          <button class="chart-modal-close text-[#909090] hover:text-[#1a1a1a] text-2xl leading-none cursor-pointer bg-transparent border-0 px-1" aria-label="Close">&times;</button>
+        </div>
+        <div class="flex-1 overflow-auto p-5 bg-[#fafafa]">
+          <img src="${dataUrl}" class="block max-w-full h-auto mx-auto" alt="${esc(title)}">
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-[#e5e5e5]">
+          <button class="chart-modal-close ${T.btn} ${T.sm} ${T.outlineLight}">Close</button>
+          <button class="chart-modal-download ${T.btn} ${T.sm} ${T.primary}">Download PNG</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', keyHandler);
+    };
+    const keyHandler = (e) => { if (e.key === 'Escape') close(); };
+    overlay.querySelectorAll('.chart-modal-close').forEach(b => b.addEventListener('click', close));
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('.chart-modal-download').addEventListener('click', () => {
+      canvas.toBlob(downloadBlob(filename), 'image/png');
+    });
+    document.addEventListener('keydown', keyHandler);
   }
 
   function downloadBlob(filename) {
@@ -1287,7 +1328,7 @@
 
       if (!answers.length) return '';
 
-      // Radio: tally with horizontal bars (unchanged)
+      // Radio: tally with horizontal bars (light theme)
       if (q.type === 'radio') {
         const tally = {};
         answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
@@ -1297,21 +1338,21 @@
           .sort((a, b) => b[1] - a[1])
           .map(([opt, count]) => `
             <div class="flex items-center gap-3">
-              <div class="flex-1 bg-[#2a2a2a] rounded-full h-7 overflow-hidden">
-                <div class="h-full rounded-full flex items-center px-3 ${count === maxCount ? 'bg-green/40' : 'bg-[#383838]'}"
+              <div class="flex-1 bg-[#f4f4f5] rounded-full h-7 overflow-hidden">
+                <div class="h-full rounded-full flex items-center px-3 ${count === maxCount ? 'bg-green/40' : 'bg-[#cccccc]'}"
                   style="width:${Math.max(Math.round((count / maxCount) * 100), 8)}%">
-                  <span class="text-xs text-[#fffbf5] truncate">${esc(opt)}</span>
+                  <span class="text-xs text-[#1a1a1a] truncate">${esc(opt)}</span>
                 </div>
               </div>
-              <span class="text-xs text-[#484848] w-6 text-right flex-shrink-0">${count}</span>
+              <span class="text-xs text-[#a0a0a0] w-6 text-right flex-shrink-0">${count}</span>
             </div>`).join('');
 
         return `
           <div class="mb-6">
-            <h3 class="text-sm font-semibold text-[#fffbf5] mb-3"><span class="text-[#484848] font-normal">${num}.</span> ${esc(q.label)}</h3>
-            <div class="bg-[#222222] border border-[#383838] rounded-xl p-5">
+            <h3 class="text-sm font-semibold text-[#1a1a1a] mb-3"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}</h3>
+            <div class="bg-white border border-[#e5e5e5] rounded-xl p-5">
               <div class="flex flex-col gap-2">${bars}</div>
-              <p class="text-xs text-[#484848] mt-3">${answers.length} response${answers.length !== 1 ? 's' : ''}</p>
+              <p class="text-xs text-[#a0a0a0] mt-3">${answers.length} response${answers.length !== 1 ? 's' : ''}</p>
             </div>
           </div>`;
       }
@@ -1325,16 +1366,16 @@
         </div>`).join('');
 
       return `
-        <div class="mb-12 pb-12 border-b border-[#383838] min-w-0">
+        <div class="mb-12 pb-12 border-b border-[#e5e5e5] min-w-0">
           <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <h3 class="text-base font-semibold text-[#fffbf5]"><span class="text-[#909090] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#909090]">(${total})</span></h3>
+            <h3 class="text-base font-semibold text-[#1a1a1a]"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#6b6b6b]">(${total})</span></h3>
           </div>
           ${renderAiSummaryPanel(q.key, total)}
           <div class="answer-collapse relative" data-question-key="${esc(q.key)}">
             <div class="answer-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>
             ${overflow ? `
-              <div class="answer-fade absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#1a1a1a] to-transparent pointer-events-none"></div>
-              <button class="answer-toggle mt-4 ${T.btn} ${T.sm} ${T.outline}" data-expanded="0" data-total="${total}">
+              <div class="answer-fade absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+              <button class="answer-toggle mt-4 ${T.btn} ${T.sm} ${T.outlineLight}" data-expanded="0" data-total="${total}">
                 Show all ${total}
               </button>
             ` : ''}
@@ -1351,19 +1392,19 @@
     const canGenerate = canCallApi && responseCount >= 2;
 
     const headerInfo = cached
-      ? `<span class="text-xs text-[#909090]">Generated ${esc(cached.generated_at)} · ${cached.response_count} response${cached.response_count !== 1 ? 's' : ''}</span>`
+      ? `<span class="text-xs text-[#6b6b6b]">Generated ${esc(cached.generated_at)} · ${cached.response_count} response${cached.response_count !== 1 ? 's' : ''}</span>`
       : '';
 
     const button = (() => {
       if (!canCallApi) return '';
       if (busy) {
-        return `<button class="${T.btn} ${T.sm} ${T.outline}" disabled>Generating&hellip;</button>`;
+        return `<button class="${T.btn} ${T.sm} ${T.outlineLight}" disabled>Generating&hellip;</button>`;
       }
       if (cached) {
-        return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.outline}" data-question-key="${esc(questionKey)}">Regenerate</button>`;
+        return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.outlineLight}" data-question-key="${esc(questionKey)}">Regenerate</button>`;
       }
       if (!canGenerate) {
-        return `<button class="${T.btn} ${T.sm} ${T.outline}" disabled title="Need at least 2 responses">Generate AI summary</button>`;
+        return `<button class="${T.btn} ${T.sm} ${T.outlineLight}" disabled title="Need at least 2 responses">Generate AI summary</button>`;
       }
       return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.primary}" data-question-key="${esc(questionKey)}">Generate AI summary</button>`;
     })();
@@ -1371,13 +1412,13 @@
     const body = cached
       ? `<div class="ai-summary-body mt-4 text-sm text-[#1a1a1a] bg-white rounded-xl p-5 border border-[#e5e5e5]">${mdToHtml(cached.summary_md)}</div>`
       : (canCallApi
-          ? `<p class="ai-summary-empty text-xs text-[#909090] mt-3">Click <em>Generate AI summary</em> to group these responses into themes.</p>`
+          ? `<p class="ai-summary-empty text-xs text-[#6b6b6b] mt-3">Click <em>Generate AI summary</em> to group these responses into themes.</p>`
           : '');
 
     if (!canCallApi && !cached) return '';
 
     return `
-      <div class="ai-summary mb-6 p-4 rounded-xl bg-[#222222] border border-[#383838]" data-ai-key="${esc(questionKey)}">
+      <div class="ai-summary mb-6 p-4 rounded-xl bg-[#fafafa] border border-[#e5e5e5]" data-ai-key="${esc(questionKey)}">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div class="flex items-center gap-2">
             <span class="text-xs uppercase tracking-wider font-semibold text-green">AI summary</span>
@@ -1399,7 +1440,7 @@
     [...state.selectedSessions].forEach(t => { if (!validTokens.has(t)) state.selectedSessions.delete(t); });
 
     const colHeaders = questions.map(q =>
-      `<th class="px-3 py-2 text-left text-xs font-medium text-[#909090] truncate" title="${esc(q.label)}">${esc(q.label)}</th>`
+      `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate" title="${esc(q.label)}">${esc(q.label)}</th>`
     ).join('');
 
     const allChecked = sessions.length > 0 && sessions.every(s => s.session_token && state.selectedSessions.has(s.session_token));
@@ -1414,30 +1455,30 @@
             if (Array.isArray(arr)) display = arr.join(q.type === 'ranking' ? ' > ' : ', ');
           } catch (_) {}
         }
-        return `<td class="px-3 py-2 text-sm text-[#909090] truncate" title="${esc(display)}">${esc(display)}</td>`;
+        return `<td class="px-3 py-2 text-sm text-[#1a1a1a] truncate" title="${esc(display)}">${esc(display)}</td>`;
       }).join('');
 
       const completed = s.completed_at
         ? `<span class="text-green text-xs">${esc(s.completed_at)}</span>`
-        : `<span class="text-[#484848] text-xs">partial</span>`;
+        : `<span class="text-[#a0a0a0] text-xs">partial</span>`;
 
       const isChecked = s.session_token && state.selectedSessions.has(s.session_token);
 
-      return `<tr class="border-b border-[#383838] hover:bg-[#2a2a2a] ${isChecked ? 'bg-[#2a2a2a]' : ''}">
+      return `<tr class="border-b border-[#e5e5e5] hover:bg-[#f4f4f5] ${isChecked ? 'bg-[#f4f4f5]' : ''}">
         <td class="px-3 py-2 text-center">
           <input type="checkbox" class="row-select cursor-pointer accent-green w-4 h-4"
                  data-session-token="${esc(s.session_token || '')}" ${isChecked ? 'checked' : ''}>
         </td>
-        <td class="px-3 py-2 text-xs font-mono text-[#484848] truncate">${esc((s.session_token || '').substring(0, 8))}…</td>
-        <td class="px-3 py-2 text-xs text-[#909090] whitespace-nowrap">${esc(s.created_at)}</td>
+        <td class="px-3 py-2 text-xs font-mono text-[#a0a0a0] truncate">${esc((s.session_token || '').substring(0, 8))}…</td>
+        <td class="px-3 py-2 text-xs text-[#6b6b6b] whitespace-nowrap">${esc(s.created_at)}</td>
         <td class="px-3 py-2 whitespace-nowrap">${completed}</td>
-        <td class="px-3 py-2 text-xs text-[#484848] truncate">${esc(s.ip_address || '')}</td>
+        <td class="px-3 py-2 text-xs text-[#a0a0a0] truncate">${esc(s.ip_address || '')}</td>
         ${cells}
       </tr>`;
     }).join('');
 
     const emptyState = sessions.length === 0
-      ? `<tr><td colspan="${5 + questions.length}" class="px-3 py-10 text-center text-[#484848] text-sm">No responses yet.</td></tr>`
+      ? `<tr><td colspan="${5 + questions.length}" class="px-3 py-10 text-center text-[#a0a0a0] text-sm">No responses yet.</td></tr>`
       : '';
 
     const completedCount = sessions.filter(s => s.completed_at).length;
@@ -1445,37 +1486,37 @@
     const bulkBarHidden = selCount === 0 ? 'hidden' : '';
 
     const headerActions = shareView
-      ? `<span class="text-xs text-[#909090]">Read-only shared view</span>`
+      ? `<span class="text-xs text-[#6b6b6b]">Read-only shared view</span>`
       : `
-        <a href="?s=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.outline}">Take survey</a>
+        <a href="?s=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.outlineLight}">Take survey</a>
         <a href="api.php?action=export_csv&slug=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
         <button id="btn-clear" class="${T.btn} ${T.sm} ${T.danger}">Clear all responses</button>
       `;
 
     const breadcrumbHome = shareView
       ? ''
-      : `<a href="/" class="text-[#909090] hover:text-[#fffbf5] text-sm transition-colors">← All surveys</a>
-         <span class="text-[#383838]">/</span>`;
+      : `<a href="/" class="text-[#6b6b6b] hover:text-[#1a1a1a] text-sm transition-colors">← All surveys</a>
+         <span class="text-[#cccccc]">/</span>`;
 
     const tableSection = shareView ? '' : `
-      <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#222222] border border-[#383838]">
-        <span class="text-sm text-[#fffbf5]"><span id="bulk-count">${selCount}</span> selected</span>
+      <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#fafafa] border border-[#e5e5e5]">
+        <span class="text-sm text-[#1a1a1a]"><span id="bulk-count">${selCount}</span> selected</span>
         <div class="flex items-center gap-2">
-          <button id="btn-clear-selection" class="${T.btn} ${T.sm} ${T.outline}">Clear selection</button>
+          <button id="btn-clear-selection" class="${T.btn} ${T.sm} ${T.outlineLight}">Clear selection</button>
           <button id="btn-delete-selected" class="${T.btn} ${T.sm} ${T.danger}">Delete selected</button>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-xl border border-[#383838]">
-        <table class="w-full table-fixed bg-[#222222]">
-          <thead class="border-b border-[#383838] bg-[#2a2a2a]">
+      <div class="overflow-x-auto rounded-xl border border-[#e5e5e5]">
+        <table class="w-full table-fixed bg-white">
+          <thead class="border-b border-[#e5e5e5] bg-[#f4f4f5]">
             <tr>
               <th class="px-3 py-2 text-center w-10">
                 <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
               </th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-24">Session</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-40 whitespace-nowrap">Started</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-28">Status</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-32">IP</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-24">Session</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-40 whitespace-nowrap">Started</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28">Status</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32">IP</th>
               ${colHeaders}
             </tr>
           </thead>
@@ -1485,19 +1526,19 @@
     `;
 
     return `
-      <div class="min-h-screen bg-[#1a1a1a]">
-        <header class="border-b border-[#383838] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+      <div class="min-h-screen bg-white text-[#1a1a1a]">
+        <header class="border-b border-[#e5e5e5] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div class="flex items-center gap-3">
             ${breadcrumbHome}
-            <span class="font-semibold text-[#fffbf5]">${esc(state.survey?.title || state.surveySlug)}</span>
-            <code class="text-xs text-[#484848]">${esc(state.surveySlug)}</code>
+            <span class="font-semibold text-[#1a1a1a]">${esc(state.survey?.title || state.surveySlug)}</span>
+            <code class="text-xs text-[#a0a0a0]">${esc(state.surveySlug)}</code>
           </div>
           <div class="flex items-center gap-2">
             ${headerActions}
           </div>
         </header>
         <div class="px-6 py-6 max-w-7xl mx-auto">
-          <p class="text-sm text-[#909090] mb-4">
+          <p class="text-sm text-[#6b6b6b] mb-4">
             ${sessions.length} response${sessions.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
             ${completedCount} completed &nbsp;·&nbsp;
             ${sessions.length - completedCount} partial
@@ -1518,21 +1559,21 @@
       ? `
         <div class="flex items-center gap-2 flex-1 min-w-0">
           <input id="share-url-input" readonly value="${esc(info.url)}"
-                 class="flex-1 min-w-0 bg-[#1a1a1a] border border-[#383838] rounded-lg px-3 py-2 text-xs font-mono text-[#c0c0c0] focus:outline-none focus:border-green">
-          <button id="share-copy-btn" class="${T.btn} ${T.sm} ${T.outline}">Copy</button>
-          <button id="share-reset-btn" class="${T.btn} ${T.sm} ${T.outline}">Reset link</button>
+                 class="flex-1 min-w-0 bg-white border border-[#cccccc] rounded-lg px-3 py-2 text-xs font-mono text-[#1a1a1a] focus:outline-none focus:border-green">
+          <button id="share-copy-btn" class="${T.btn} ${T.sm} ${T.outlineLight}">Copy</button>
+          <button id="share-reset-btn" class="${T.btn} ${T.sm} ${T.outlineLight}">Reset link</button>
           <button id="share-delete-btn" class="${T.btn} ${T.sm} ${T.danger}">Delete</button>
         </div>`
       : `
         <div class="flex items-center gap-3 flex-wrap">
-          <span class="text-sm text-[#909090]">No share link yet — anyone with the link can view summaries (read-only, no IPs or session data).</span>
+          <span class="text-sm text-[#6b6b6b]">No share link yet — anyone with the link can view summaries (read-only, no IPs or session data).</span>
           <button id="share-create-btn" class="${T.btn} ${T.sm} ${T.primary}">Generate share link</button>
         </div>`;
     return `
-      <div class="mb-6 p-4 rounded-xl bg-[#222222] border border-[#383838]">
+      <div class="mb-6 p-4 rounded-xl bg-[#fafafa] border border-[#e5e5e5]">
         <div class="flex items-center gap-2 mb-3">
           <span class="text-xs uppercase tracking-wider font-semibold text-green">Share link</span>
-          ${info && info.created_at ? `<span class="text-xs text-[#909090]">created ${esc(info.created_at)}</span>` : ''}
+          ${info && info.created_at ? `<span class="text-xs text-[#6b6b6b]">created ${esc(info.created_at)}</span>` : ''}
         </div>
         ${body}
       </div>`;
@@ -1656,7 +1697,7 @@
         const token = cb.dataset.sessionToken;
         if (cb.checked) state.selectedSessions.add(token);
         else state.selectedSessions.delete(token);
-        cb.closest('tr')?.classList.toggle('bg-[#2a2a2a]', cb.checked);
+        cb.closest('tr')?.classList.toggle('bg-[#f4f4f5]', cb.checked);
         updateBulkBar();
       });
     });
@@ -1670,7 +1711,7 @@
       }
       document.querySelectorAll('.row-select').forEach(cb => {
         cb.checked = state.selectedSessions.has(cb.dataset.sessionToken);
-        cb.closest('tr')?.classList.toggle('bg-[#2a2a2a]', cb.checked);
+        cb.closest('tr')?.classList.toggle('bg-[#f4f4f5]', cb.checked);
       });
       updateBulkBar();
     });
@@ -1679,7 +1720,7 @@
       state.selectedSessions.clear();
       document.querySelectorAll('.row-select').forEach(cb => {
         cb.checked = false;
-        cb.closest('tr')?.classList.remove('bg-[#2a2a2a]');
+        cb.closest('tr')?.classList.remove('bg-[#f4f4f5]');
       });
       updateBulkBar();
     });
@@ -1719,7 +1760,7 @@
           : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
         const safeSlug = (state.surveySlug || 'survey').replace(/[^a-z0-9-]+/gi, '-');
         const safeKey  = (q.key || 'chart').replace(/[^a-z0-9-]+/gi, '-');
-        downloadChartAsPNG(`${safeSlug}-${safeKey}.png`, q.label, subtitle, result.bars);
+        openChartPreview(`${safeSlug}-${safeKey}.png`, q.label, subtitle, result.bars);
       });
     });
   }

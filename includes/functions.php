@@ -172,32 +172,34 @@ function emailTemplate(string $heading, string $bodyHtml): string {
 </div></body></html>";
 }
 
-// ── Anthropic API ─────────────────────────────────────────────────
+// ── OpenAI API ────────────────────────────────────────────────────
 
 /**
- * POST a single user message to the Claude Messages API and return the
- * assistant's text reply. Throws on transport or API errors.
+ * POST a system + user message to the OpenAI Chat Completions API and
+ * return the assistant's text reply. Throws on transport or API errors.
  */
-function callClaude(string $systemPrompt, string $userPrompt, string $model = 'claude-sonnet-4-6', int $maxTokens = 1500): string {
-    if (!defined('ANTHROPIC_API_KEY') || ANTHROPIC_API_KEY === '') {
-        throw new RuntimeException('ANTHROPIC_API_KEY is not configured.');
+function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 1500): string {
+    if (!defined('OPENAI_API_KEY') || OPENAI_API_KEY === '') {
+        throw new RuntimeException('OPENAI_API_KEY is not configured.');
     }
+    $model = $model ?? (defined('OPENAI_MODEL') ? OPENAI_MODEL : 'gpt-4o-mini');
 
     $payload = [
         'model'       => $model,
         'max_tokens'  => $maxTokens,
-        'system'      => $systemPrompt,
-        'messages'    => [['role' => 'user', 'content' => $userPrompt]],
+        'messages'    => [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user',   'content' => $userPrompt],
+        ],
     ];
 
-    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    $ch = curl_init('https://api.openai.com/v1/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
-            'x-api-key: ' . ANTHROPIC_API_KEY,
-            'anthropic-version: 2023-06-01',
+            'Authorization: Bearer ' . OPENAI_API_KEY,
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload),
         CURLOPT_TIMEOUT        => 60,
@@ -208,22 +210,19 @@ function callClaude(string $systemPrompt, string $userPrompt, string $model = 'c
     curl_close($ch);
 
     if ($body === false) {
-        throw new RuntimeException('Claude API request failed: ' . $err);
+        throw new RuntimeException('OpenAI API request failed: ' . $err);
     }
     $decoded = json_decode($body, true);
     if (!is_array($decoded)) {
-        throw new RuntimeException('Claude API returned invalid JSON');
+        throw new RuntimeException('OpenAI API returned invalid JSON');
     }
     if ($http >= 400) {
         $msg = $decoded['error']['message'] ?? ('HTTP ' . $http);
-        throw new RuntimeException('Claude API error: ' . $msg);
+        throw new RuntimeException('OpenAI API error: ' . $msg);
     }
-    $text = '';
-    foreach (($decoded['content'] ?? []) as $block) {
-        if (($block['type'] ?? '') === 'text') $text .= $block['text'];
-    }
+    $text = $decoded['choices'][0]['message']['content'] ?? '';
     if ($text === '') {
-        throw new RuntimeException('Claude API returned no text content');
+        throw new RuntimeException('OpenAI API returned no text content');
     }
     return $text;
 }

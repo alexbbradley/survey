@@ -1,0 +1,18 @@
+# Block direct HTTP access to dotfiles (.env, .git, .htaccess, etc.)
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Belt-and-braces: deny direct HTTP access to config.php.
+# PHP normally executes this file and returns nothing, but if the .php
+# handler is ever disabled or misconfigured, this prevents Apache from
+# serving the source as plain text.
+<Files config.php>
+    Require all denied
+</Files>
+
+# Block editor / sync backup files Apache would otherwise serve as plain
+# text (config.php~, config.php.bak, *.swp, etc.)
+<FilesMatch "(\.(bak|swp|orig|save|tmp)|~)$">
+    Require all denied
+</FilesMatch>
