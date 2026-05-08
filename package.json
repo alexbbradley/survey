@@ -21,7 +21,5 @@
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.1.0"
   },
-  "dependencies": {
-    "embla-carousel": "^8.6.0"
-  }
+  "dependencies": {}
 }

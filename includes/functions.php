@@ -172,6 +172,62 @@ function emailTemplate(string $heading, string $bodyHtml): string {
 </div></body></html>";
 }
 
+// ── Anthropic API ─────────────────────────────────────────────────
+
+/**
+ * POST a single user message to the Claude Messages API and return the
+ * assistant's text reply. Throws on transport or API errors.
+ */
+function callClaude(string $systemPrompt, string $userPrompt, string $model = 'claude-sonnet-4-6', int $maxTokens = 1500): string {
+    if (!defined('ANTHROPIC_API_KEY') || ANTHROPIC_API_KEY === '') {
+        throw new RuntimeException('ANTHROPIC_API_KEY is not configured.');
+    }
+
+    $payload = [
+        'model'       => $model,
+        'max_tokens'  => $maxTokens,
+        'system'      => $systemPrompt,
+        'messages'    => [['role' => 'user', 'content' => $userPrompt]],
+    ];
+
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'x-api-key: ' . ANTHROPIC_API_KEY,
+            'anthropic-version: 2023-06-01',
+        ],
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_TIMEOUT        => 60,
+    ]);
+    $body = curl_exec($ch);
+    $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($body === false) {
+        throw new RuntimeException('Claude API request failed: ' . $err);
+    }
+    $decoded = json_decode($body, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('Claude API returned invalid JSON');
+    }
+    if ($http >= 400) {
+        $msg = $decoded['error']['message'] ?? ('HTTP ' . $http);
+        throw new RuntimeException('Claude API error: ' . $msg);
+    }
+    $text = '';
+    foreach (($decoded['content'] ?? []) as $block) {
+        if (($block['type'] ?? '') === 'text') $text .= $block['text'];
+    }
+    if ($text === '') {
+        throw new RuntimeException('Claude API returned no text content');
+    }
+    return $text;
+}
+
 // ── Survey helpers ────────────────────────────────────────────────
 
 /**
@@ -261,6 +317,67 @@ function flattenQuestions(array $questions): array {
         }
     }
     return $flat;
+}
+
+/**
+ * Build the responses payload for a survey (questions + sessions w/ answers).
+ * If $stripPII is true, removes ip_address and the full session_token from
+ * each session row — used for the public share view.
+ * Returns null if the survey can't be loaded.
+ */
+function buildResponsesPayload(string $slug, bool $stripPII): ?array {
+    $survey = loadSurvey($slug);
+    if (!$survey) return null;
+
+    $db = getDB();
+    $sessStmt = $db->prepare(
+        'SELECT id, session_token, user_id, ip_address, current_question, completed_at, created_at
+         FROM survey_sessions WHERE survey_slug = ? ORDER BY created_at DESC'
+    );
+    $sessStmt->execute([$slug]);
+    $rows = $sessStmt->fetchAll();
+
+    if ($rows) {
+        $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
+        $answers = $db->query(
+            "SELECT session_id, question_key, answer_value FROM survey_answers WHERE session_id IN ($ids)"
+        )->fetchAll();
+        $answerMap = [];
+        foreach ($answers as $a) {
+            $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
+        }
+        foreach ($rows as &$row) {
+            $row['answers'] = $answerMap[$row['id']] ?? (object)[];
+            if ($stripPII) {
+                unset($row['ip_address'], $row['session_token'], $row['user_id']);
+            }
+        }
+        unset($row);
+    }
+
+    return [
+        'questions' => flattenQuestions(sanitizeSurveyForClient($survey)['questions']),
+        'sessions'  => $rows,
+    ];
+}
+
+/**
+ * Construct the public shareable URL for a (slug, share_token) pair.
+ */
+function buildShareUrl(string $slug, string $token): string {
+    return rtrim(SITE_URL, '/') . '/?s=' . urlencode($slug) . '&view=responses&t=' . urlencode($token);
+}
+
+/**
+ * Validate a share token from the URL against the survey_share_tokens table.
+ * Returns the slug it grants access to, or null if invalid/missing.
+ */
+function resolveShareToken(string $token): ?string {
+    if (strlen($token) !== 64 || !ctype_xdigit($token)) return null;
+    $stmt = getDB()->prepare('SELECT survey_slug FROM survey_share_tokens WHERE share_token = ?');
+    $stmt->execute([$token]);
+    $row = $stmt->fetch();
+    return $row ? (string)$row['survey_slug'] : null;
 }
 
 /**

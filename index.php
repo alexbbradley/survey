@@ -5,6 +5,9 @@ $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['s'] ?? ''));
 
 $view = $_GET['view'] ?? '';
 
+$shareTokenRaw = trim($_GET['t'] ?? '');
+$shareToken    = (strlen($shareTokenRaw) === 64 && ctype_xdigit($shareTokenRaw)) ? $shareTokenRaw : '';
+
 if ($slug === 'indigo-survey' && $view === '') {
     header('Location: https://v44tkjfbubc.typeform.com/to/tEHkwtpI');
     exit;
@@ -51,8 +54,9 @@ $pageDesc  = $survey ? trim(explode("\n", $survey['description'] ?? '')[0]) : ''
   <div id="toast-container" class="fixed bottom-6 right-6 z-[1000] flex flex-col gap-2 pointer-events-none"></div>
 
   <script>
-    window.SURVEY_SLUG = <?= json_encode($slug ?: null) ?>;
-    window.SURVEY_VIEW = <?= json_encode($view ?: null) ?>;
+    window.SURVEY_SLUG        = <?= json_encode($slug ?: null) ?>;
+    window.SURVEY_VIEW        = <?= json_encode($view ?: null) ?>;
+    window.SURVEY_SHARE_TOKEN = <?= json_encode($shareToken ?: null) ?>;
 
     // Safety net: if the bundle fails to load, parse, or mount, show an actionable
     // error card so the user isn't stuck on "Loading…". Cleared by the app on mount.

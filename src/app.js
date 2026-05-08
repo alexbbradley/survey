@@ -1,8 +1,6 @@
 /* survey/src/app.js — Typeform-style survey SPA */
 'use strict';
 
-import EmblaCarousel from 'embla-carousel';
-
 (function () {
 
   // ── Tailwind class constants ───────────────────────────────────────────────
@@ -150,6 +148,7 @@ import EmblaCarousel from 'embla-carousel';
     page:        'loading', // 'loading'|'home'|'survey'|'responses'|'completed'|'not_found'
     surveySlug:  window.SURVEY_SLUG || null,
     surveyView:  window.SURVEY_VIEW || null,
+    shareToken:  window.SURVEY_SHARE_TOKEN || null, // public-share viewer
     // Survey definition
     survey:      null,  // { title, description, thank_you, questions[] }
     // Session
@@ -161,10 +160,18 @@ import EmblaCarousel from 'embla-carousel';
     surveys:      [],   // [{slug, title}] for home page
     responsesData: null, // { questions[], sessions[] }
     selectedSessions: new Set(), // tokens of sessions selected for bulk actions
+    aiSummaries: {},     // { question_key: { summary_md, response_count, generated_at } }
+    aiBusy:      {},     // { question_key: true } while a generate request is in-flight
+    shareInfo:   null,   // { token, url, created_at } | null  (admin only)
     // UI
     saving: false,
     _keyHandler: null,
   };
+
+  /** True when the current page view is the public share-token view (read-only, non-admin). */
+  function isShareView() {
+    return !!state.shareToken;
+  }
 
   // ── Validation helpers ─────────────────────────────────────────────────────
   function isValidEmail(v) {
@@ -1175,8 +1182,11 @@ import EmblaCarousel from 'embla-carousel';
       const h = (d.score / max) * chartH;
       const y = padTop + chartH - h;
 
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(x, y, barW, h);
+      ctx.fillStyle = '#70BFA1';
+      const r = Math.min(barW / 2, Math.max(h, 0), 10);
+      ctx.beginPath();
+      ctx.roundRect(x, y, barW, h, [r, r, 0, 0]);
+      ctx.fill();
 
       // Score above bar
       ctx.font = '600 15px system-ui, -apple-system, sans-serif';
@@ -1226,14 +1236,47 @@ import EmblaCarousel from 'embla-carousel';
     return questions.findIndex(q => q.key === key) + 1;
   }
 
+  /** Initial card count shown before "Show all" expands. */
+  const ANSWER_CARDS_INITIAL = 6;
+
+  /** Tiny markdown→HTML for the bounded AI summary output (h2/h3/blockquote/ul/strong/p). */
+  function mdToHtml(md) {
+    const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    const lines  = String(md || '').split(/\r?\n/);
+    const out    = [];
+    let inList   = false;
+    let para     = [];
+    const flushPara = () => {
+      if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; }
+    };
+    const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) { flushPara(); closeList(); continue; }
+      let m;
+      if ((m = line.match(/^### (.+)$/))) { flushPara(); closeList(); out.push(`<h3 class="text-sm font-semibold mt-4 mb-1 text-[#1a1a1a]">${inline(m[1])}</h3>`); continue; }
+      if ((m = line.match(/^## (.+)$/)))  { flushPara(); closeList(); out.push(`<h2 class="text-base font-bold mt-5 mb-2 text-[#1a1a1a]">${inline(m[1])}</h2>`); continue; }
+      if ((m = line.match(/^> (.+)$/)))   { flushPara(); closeList(); out.push(`<blockquote class="border-l-4 border-[#cccccc] pl-3 my-2 text-[#444444] italic">${inline(m[1])}</blockquote>`); continue; }
+      if ((m = line.match(/^[-*] (.+)$/))) {
+        flushPara();
+        if (!inList) { out.push('<ul class="list-disc pl-5 my-2 space-y-1">'); inList = true; }
+        out.push(`<li>${inline(m[1])}</li>`);
+        continue;
+      }
+      para.push(line);
+    }
+    flushPara();
+    closeList();
+    return out.join('').replace(/<p>/g, '<p class="my-2">');
+  }
+
   function renderAnswerSummaries(questions, sessions) {
     // Ranking and checkbox questions are rendered by renderBarCharts instead.
     const summaryQs = questions.filter(q =>
       q.summary && q.type !== 'ranking' && q.type !== 'checkbox'
     );
     if (!summaryQs.length || !sessions.length) return '';
-
-    let carouselId = 0;
 
     return summaryQs.map(q => {
       const num = getQuestionNumber(questions, q.key);
@@ -1244,7 +1287,7 @@ import EmblaCarousel from 'embla-carousel';
 
       if (!answers.length) return '';
 
-      // Radio: tally with horizontal bars
+      // Radio: tally with horizontal bars (unchanged)
       if (q.type === 'radio') {
         const tally = {};
         answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
@@ -1273,44 +1316,93 @@ import EmblaCarousel from 'embla-carousel';
           </div>`;
       }
 
-      // Text/textarea — scrollable carousel with arrows
-      const cid = `carousel-${carouselId++}`;
-      const cards = answers.map(a => `
-        <div class="min-w-0" style="flex:0 0 280px">
-          <div class="bg-[#222222] border border-[#383838] rounded-xl p-4 h-full">
-            <p class="text-sm text-[#c0c0c0] leading-relaxed whitespace-pre-line">${esc(a.value)}</p>
-          </div>
+      // Text/textarea — responsive grid of white cards with collapsible "show all"
+      const total      = answers.length;
+      const overflow   = total > ANSWER_CARDS_INITIAL;
+      const cards = answers.map((a, i) => `
+        <div class="answer-card bg-white text-[#1a1a1a] rounded-xl p-4 shadow-sm border border-[#e5e5e5] ${i >= ANSWER_CARDS_INITIAL ? 'hidden answer-card-hidden' : ''}">
+          <p class="text-sm leading-relaxed whitespace-pre-line">${esc(a.value)}</p>
         </div>`).join('');
 
       return `
         <div class="mb-12 pb-12 border-b border-[#383838] min-w-0">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-base font-semibold text-[#fffbf5]"><span class="">${num}.</span> ${esc(q.label)} <span class="text-[#909090]">(${answers.length})</span></h3>
-            <div class="flex items-center gap-1">
-              <button data-carousel-prev="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&larr;</button>
-              <button data-carousel-next="${cid}" class="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#383838] text-[#909090] hover:text-[#fffbf5] hover:border-[#484848] flex items-center justify-center text-xs cursor-pointer transition-colors">&rarr;</button>
-            </div>
+          <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <h3 class="text-base font-semibold text-[#fffbf5]"><span class="text-[#909090] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#909090]">(${total})</span></h3>
           </div>
-          <div id="${cid}" class="overflow-hidden min-w-0">
-            <div class="flex gap-3">${cards}</div>
+          ${renderAiSummaryPanel(q.key, total)}
+          <div class="answer-collapse relative" data-question-key="${esc(q.key)}">
+            <div class="answer-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>
+            ${overflow ? `
+              <div class="answer-fade absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#1a1a1a] to-transparent pointer-events-none"></div>
+              <button class="answer-toggle mt-4 ${T.btn} ${T.sm} ${T.outline}" data-expanded="0" data-total="${total}">
+                Show all ${total}
+              </button>
+            ` : ''}
           </div>
         </div>`;
     }).join('');
   }
 
-  // ── Responses page (admin) ─────────────────────────────────────────────────
+  /** Render the AI-summary panel above the answer cards. */
+  function renderAiSummaryPanel(questionKey, responseCount) {
+    const cached      = state.aiSummaries[questionKey] || null;
+    const busy        = !!state.aiBusy[questionKey];
+    const canCallApi  = state.isAdmin || isShareView();
+    const canGenerate = canCallApi && responseCount >= 2;
+
+    const headerInfo = cached
+      ? `<span class="text-xs text-[#909090]">Generated ${esc(cached.generated_at)} · ${cached.response_count} response${cached.response_count !== 1 ? 's' : ''}</span>`
+      : '';
+
+    const button = (() => {
+      if (!canCallApi) return '';
+      if (busy) {
+        return `<button class="${T.btn} ${T.sm} ${T.outline}" disabled>Generating&hellip;</button>`;
+      }
+      if (cached) {
+        return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.outline}" data-question-key="${esc(questionKey)}">Regenerate</button>`;
+      }
+      if (!canGenerate) {
+        return `<button class="${T.btn} ${T.sm} ${T.outline}" disabled title="Need at least 2 responses">Generate AI summary</button>`;
+      }
+      return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.primary}" data-question-key="${esc(questionKey)}">Generate AI summary</button>`;
+    })();
+
+    const body = cached
+      ? `<div class="ai-summary-body mt-4 text-sm text-[#1a1a1a] bg-white rounded-xl p-5 border border-[#e5e5e5]">${mdToHtml(cached.summary_md)}</div>`
+      : (canCallApi
+          ? `<p class="ai-summary-empty text-xs text-[#909090] mt-3">Click <em>Generate AI summary</em> to group these responses into themes.</p>`
+          : '');
+
+    if (!canCallApi && !cached) return '';
+
+    return `
+      <div class="ai-summary mb-6 p-4 rounded-xl bg-[#222222] border border-[#383838]" data-ai-key="${esc(questionKey)}">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-xs uppercase tracking-wider font-semibold text-green">AI summary</span>
+            ${headerInfo}
+          </div>
+          ${button}
+        </div>
+        ${body}
+      </div>`;
+  }
+
+  // ── Responses page (admin or public share view) ────────────────────────────
   function renderResponses() {
     const { questions, sessions } = state.responsesData || { questions: [], sessions: [] };
+    const shareView = isShareView();
 
     // Drop selections that no longer exist in the current session list
-    const validTokens = new Set(sessions.map(s => s.session_token));
+    const validTokens = new Set(sessions.map(s => s.session_token).filter(Boolean));
     [...state.selectedSessions].forEach(t => { if (!validTokens.has(t)) state.selectedSessions.delete(t); });
 
     const colHeaders = questions.map(q =>
-      `<th class="px-3 py-2 text-left text-xs font-medium text-[#909090] whitespace-nowrap max-w-[180px]">${esc(q.label)}</th>`
+      `<th class="px-3 py-2 text-left text-xs font-medium text-[#909090] truncate" title="${esc(q.label)}">${esc(q.label)}</th>`
     ).join('');
 
-    const allChecked = sessions.length > 0 && sessions.every(s => state.selectedSessions.has(s.session_token));
+    const allChecked = sessions.length > 0 && sessions.every(s => s.session_token && state.selectedSessions.has(s.session_token));
 
     const rows = sessions.map(s => {
       const cells = questions.map(q => {
@@ -1322,24 +1414,24 @@ import EmblaCarousel from 'embla-carousel';
             if (Array.isArray(arr)) display = arr.join(q.type === 'ranking' ? ' > ' : ', ');
           } catch (_) {}
         }
-        return `<td class="px-3 py-2 text-sm text-[#909090] max-w-[180px] truncate" title="${esc(display)}">${esc(display)}</td>`;
+        return `<td class="px-3 py-2 text-sm text-[#909090] truncate" title="${esc(display)}">${esc(display)}</td>`;
       }).join('');
 
       const completed = s.completed_at
         ? `<span class="text-green text-xs">${esc(s.completed_at)}</span>`
         : `<span class="text-[#484848] text-xs">partial</span>`;
 
-      const isChecked = state.selectedSessions.has(s.session_token);
+      const isChecked = s.session_token && state.selectedSessions.has(s.session_token);
 
       return `<tr class="border-b border-[#383838] hover:bg-[#2a2a2a] ${isChecked ? 'bg-[#2a2a2a]' : ''}">
         <td class="px-3 py-2 text-center">
           <input type="checkbox" class="row-select cursor-pointer accent-green w-4 h-4"
-                 data-session-token="${esc(s.session_token)}" ${isChecked ? 'checked' : ''}>
+                 data-session-token="${esc(s.session_token || '')}" ${isChecked ? 'checked' : ''}>
         </td>
-        <td class="px-3 py-2 text-xs font-mono text-[#484848]">${esc(s.session_token.substring(0, 8))}…</td>
+        <td class="px-3 py-2 text-xs font-mono text-[#484848] truncate">${esc((s.session_token || '').substring(0, 8))}…</td>
         <td class="px-3 py-2 text-xs text-[#909090] whitespace-nowrap">${esc(s.created_at)}</td>
         <td class="px-3 py-2 whitespace-nowrap">${completed}</td>
-        <td class="px-3 py-2 text-xs text-[#484848]">${esc(s.ip_address)}</td>
+        <td class="px-3 py-2 text-xs text-[#484848] truncate">${esc(s.ip_address || '')}</td>
         ${cells}
       </tr>`;
     }).join('');
@@ -1352,71 +1444,184 @@ import EmblaCarousel from 'embla-carousel';
     const selCount = state.selectedSessions.size;
     const bulkBarHidden = selCount === 0 ? 'hidden' : '';
 
+    const headerActions = shareView
+      ? `<span class="text-xs text-[#909090]">Read-only shared view</span>`
+      : `
+        <a href="?s=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.outline}">Take survey</a>
+        <a href="api.php?action=export_csv&slug=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
+        <button id="btn-clear" class="${T.btn} ${T.sm} ${T.danger}">Clear all responses</button>
+      `;
+
+    const breadcrumbHome = shareView
+      ? ''
+      : `<a href="/" class="text-[#909090] hover:text-[#fffbf5] text-sm transition-colors">← All surveys</a>
+         <span class="text-[#383838]">/</span>`;
+
+    const tableSection = shareView ? '' : `
+      <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#222222] border border-[#383838]">
+        <span class="text-sm text-[#fffbf5]"><span id="bulk-count">${selCount}</span> selected</span>
+        <div class="flex items-center gap-2">
+          <button id="btn-clear-selection" class="${T.btn} ${T.sm} ${T.outline}">Clear selection</button>
+          <button id="btn-delete-selected" class="${T.btn} ${T.sm} ${T.danger}">Delete selected</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto rounded-xl border border-[#383838]">
+        <table class="w-full table-fixed bg-[#222222]">
+          <thead class="border-b border-[#383838] bg-[#2a2a2a]">
+            <tr>
+              <th class="px-3 py-2 text-center w-10">
+                <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
+              </th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-24">Session</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-40 whitespace-nowrap">Started</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-28">Status</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] w-32">IP</th>
+              ${colHeaders}
+            </tr>
+          </thead>
+          <tbody>${rows}${emptyState}</tbody>
+        </table>
+      </div>
+    `;
+
     return `
       <div class="min-h-screen bg-[#1a1a1a]">
         <header class="border-b border-[#383838] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div class="flex items-center gap-3">
-            <a href="/" class="text-[#909090] hover:text-[#fffbf5] text-sm transition-colors">← All surveys</a>
-            <span class="text-[#383838]">/</span>
+            ${breadcrumbHome}
             <span class="font-semibold text-[#fffbf5]">${esc(state.survey?.title || state.surveySlug)}</span>
             <code class="text-xs text-[#484848]">${esc(state.surveySlug)}</code>
           </div>
           <div class="flex items-center gap-2">
-            <a href="?s=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.outline}">Take survey</a>
-            <a href="api.php?action=export_csv&slug=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
-            <button id="btn-clear" class="${T.btn} ${T.sm} ${T.danger}">Clear all responses</button>
+            ${headerActions}
           </div>
         </header>
-        <div class="px-6 py-6">
+        <div class="px-6 py-6 max-w-7xl mx-auto">
           <p class="text-sm text-[#909090] mb-4">
             ${sessions.length} response${sessions.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
             ${completedCount} completed &nbsp;·&nbsp;
             ${sessions.length - completedCount} partial
           </p>
+          ${renderShareLinkPanel()}
           ${renderAnswerSummaries(questions, sessions)}
           ${renderBarCharts(questions, sessions)}
-          <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#222222] border border-[#383838]">
-            <span class="text-sm text-[#fffbf5]"><span id="bulk-count">${selCount}</span> selected</span>
-            <div class="flex items-center gap-2">
-              <button id="btn-clear-selection" class="${T.btn} ${T.sm} ${T.outline}">Clear selection</button>
-              <button id="btn-delete-selected" class="${T.btn} ${T.sm} ${T.danger}">Delete selected</button>
-            </div>
-          </div>
-          <div class="overflow-x-auto rounded-xl border border-[#383838]">
-            <table class="w-full bg-[#222222]">
-              <thead class="border-b border-[#383838] bg-[#2a2a2a]">
-                <tr>
-                  <th class="px-3 py-2 text-center w-10">
-                    <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
-                  </th>
-                  <th class="px-3 py-2 text-left text-xs font-medium text-[#909090]">Session</th>
-                  <th class="px-3 py-2 text-left text-xs font-medium text-[#909090] whitespace-nowrap">Started</th>
-                  <th class="px-3 py-2 text-left text-xs font-medium text-[#909090]">Status</th>
-                  <th class="px-3 py-2 text-left text-xs font-medium text-[#909090]">IP</th>
-                  ${colHeaders}
-                </tr>
-              </thead>
-              <tbody>${rows}${emptyState}</tbody>
-            </table>
-          </div>
+          ${tableSection}
         </div>
       </div>`;
   }
 
+  /** Admin-only "share link" panel above the summaries. */
+  function renderShareLinkPanel() {
+    if (isShareView() || !state.isAdmin) return '';
+    const info = state.shareInfo;
+    const body = info && info.url
+      ? `
+        <div class="flex items-center gap-2 flex-1 min-w-0">
+          <input id="share-url-input" readonly value="${esc(info.url)}"
+                 class="flex-1 min-w-0 bg-[#1a1a1a] border border-[#383838] rounded-lg px-3 py-2 text-xs font-mono text-[#c0c0c0] focus:outline-none focus:border-green">
+          <button id="share-copy-btn" class="${T.btn} ${T.sm} ${T.outline}">Copy</button>
+          <button id="share-reset-btn" class="${T.btn} ${T.sm} ${T.outline}">Reset link</button>
+          <button id="share-delete-btn" class="${T.btn} ${T.sm} ${T.danger}">Delete</button>
+        </div>`
+      : `
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="text-sm text-[#909090]">No share link yet — anyone with the link can view summaries (read-only, no IPs or session data).</span>
+          <button id="share-create-btn" class="${T.btn} ${T.sm} ${T.primary}">Generate share link</button>
+        </div>`;
+    return `
+      <div class="mb-6 p-4 rounded-xl bg-[#222222] border border-[#383838]">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs uppercase tracking-wider font-semibold text-green">Share link</span>
+          ${info && info.created_at ? `<span class="text-xs text-[#909090]">created ${esc(info.created_at)}</span>` : ''}
+        </div>
+        ${body}
+      </div>`;
+  }
+
   function attachResponsesEvents() {
-    // Init Embla carousels with arrow buttons
-    document.querySelectorAll('[data-carousel-prev]').forEach(btn => {
-      const cid = btn.dataset.carouselPrev;
-      const el = document.getElementById(cid);
-      if (!el || el._embla) return;
-      const embla = EmblaCarousel(el, { align: 'start', containScroll: 'trimSnaps', dragFree: false, speed: 15 });
-      el.style.cursor = 'grab';
-      embla.on('pointerDown', () => { el.style.cursor = 'grabbing'; });
-      embla.on('pointerUp', () => { el.style.cursor = 'grab'; });
-      el._embla = embla;
-      btn.addEventListener('click', () => embla.scrollPrev());
-      const nextBtn = document.querySelector(`[data-carousel-next="${cid}"]`);
-      if (nextBtn) nextBtn.addEventListener('click', () => embla.scrollNext());
+    // "Show all" / "Show fewer" toggle on each free-text answer grid.
+    document.querySelectorAll('.answer-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const wrap     = btn.closest('.answer-collapse');
+        const expanded = btn.dataset.expanded === '1';
+        const total    = btn.dataset.total;
+        if (!wrap) return;
+        wrap.querySelectorAll('.answer-card-hidden').forEach(card => {
+          card.classList.toggle('hidden', expanded);
+        });
+        const fade = wrap.querySelector('.answer-fade');
+        if (fade) fade.classList.toggle('hidden', !expanded);
+        btn.dataset.expanded = expanded ? '0' : '1';
+        btn.textContent = expanded ? `Show all ${total}` : 'Show fewer';
+      });
+    });
+
+    // AI summary: generate/regenerate per question
+    document.querySelectorAll('.ai-generate-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const key = btn.dataset.questionKey;
+        if (!key || state.aiBusy[key]) return;
+        state.aiBusy[key] = true;
+        rerenderApp();
+        try {
+          const body = { slug: state.surveySlug, question_key: key };
+          if (isShareView()) body.token = state.shareToken;
+          const r = await api('generate_ai_summary', 'POST', body);
+          state.aiSummaries[key] = {
+            summary_md:     r.summary_md,
+            response_count: r.response_count,
+            generated_at:   r.generated_at,
+          };
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          state.aiBusy[key] = false;
+          rerenderApp();
+        }
+      });
+    });
+
+    // Share-link panel (admin)
+    document.getElementById('share-create-btn')?.addEventListener('click', async () => {
+      try {
+        const r = await api('create_share_token', 'POST', { slug: state.surveySlug });
+        state.shareInfo = { token: r.token, url: r.url, created_at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+        rerenderApp();
+        toast('Share link created.', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
+    document.getElementById('share-copy-btn')?.addEventListener('click', async () => {
+      const input = document.getElementById('share-url-input');
+      if (!input) return;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        toast('Copied to clipboard.', 'success');
+      } catch (_) {
+        input.select();
+        document.execCommand('copy');
+        toast('Copied to clipboard.', 'success');
+      }
+    });
+
+    document.getElementById('share-reset-btn')?.addEventListener('click', async () => {
+      if (!confirm('Resetting will invalidate the current link and create a new one. Continue?')) return;
+      try {
+        const r = await api('create_share_token', 'POST', { slug: state.surveySlug });
+        state.shareInfo = { token: r.token, url: r.url, created_at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+        rerenderApp();
+        toast('New share link created — the old one no longer works.', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
+    document.getElementById('share-delete-btn')?.addEventListener('click', async () => {
+      if (!confirm('Delete the share link? Anyone with the URL will lose access.')) return;
+      try {
+        await api('delete_share_token', 'POST', { slug: state.surveySlug });
+        state.shareInfo = null;
+        rerenderApp();
+        toast('Share link deleted.', 'success');
+      } catch (err) { toast(err.message, 'error'); }
     });
 
     document.getElementById('btn-clear')?.addEventListener('click', async () => {
@@ -1425,8 +1630,7 @@ import EmblaCarousel from 'embla-carousel';
         const r = await api('clear_responses', 'POST', { slug: state.surveySlug });
         toast(`Cleared ${r.deleted} response${r.deleted !== 1 ? 's' : ''}.`, 'success');
         state.selectedSessions.clear();
-        const fresh = await api(`get_responses&slug=${state.surveySlug}`);
-        state.responsesData = fresh;
+        await loadResponses();
         rerenderApp();
       } catch (err) {
         toast(err.message, 'error');
@@ -1489,8 +1693,7 @@ import EmblaCarousel from 'embla-carousel';
         const r = await api('delete_sessions', 'POST', { slug: state.surveySlug, tokens });
         toast(`Deleted ${r.deleted} response${r.deleted !== 1 ? 's' : ''}.`, 'success');
         state.selectedSessions.clear();
-        const fresh = await api(`get_responses&slug=${state.surveySlug}`);
-        state.responsesData = fresh;
+        await loadResponses();
         rerenderApp();
       } catch (err) {
         toast(err.message, 'error');
@@ -1578,9 +1781,35 @@ import EmblaCarousel from 'embla-carousel';
   // ── Responses loader ───────────────────────────────────────────────────────
   async function loadResponses() {
     try {
-      const r = await api(`get_responses&slug=${state.surveySlug}`);
-      state.responsesData = r;
-      state.page = 'responses';
+      const slug = state.surveySlug;
+      const [data, summaries, share] = await Promise.all([
+        api(`get_responses&slug=${slug}`),
+        api(`get_ai_summaries&slug=${slug}`).catch(() => ({})),
+        api(`get_share_token&slug=${slug}`).catch(() => null),
+      ]);
+      state.responsesData = data;
+      state.aiSummaries   = summaries || {};
+      state.shareInfo     = share && share.token ? share : null;
+      state.page          = 'responses';
+    } catch (err) {
+      toast(err.message, 'error');
+      state.page = 'not_found';
+    }
+  }
+
+  /** Public share-view loader — uses the share token in place of admin auth. */
+  async function loadResponsesPublic() {
+    try {
+      const slug = state.surveySlug;
+      const tok  = state.shareToken;
+      const [data, summaries] = await Promise.all([
+        api(`get_responses_public&token=${encodeURIComponent(tok)}`),
+        api(`get_ai_summaries&slug=${slug}&token=${encodeURIComponent(tok)}`).catch(() => ({})),
+      ]);
+      state.responsesData = data;
+      state.aiSummaries   = summaries || {};
+      state.shareInfo     = null; // admin-only widget
+      state.page          = 'responses';
     } catch (err) {
       toast(err.message, 'error');
       state.page = 'not_found';
@@ -1618,8 +1847,13 @@ import EmblaCarousel from 'embla-carousel';
         return;
       }
 
-      // 4. Responses view (admin only)
+      // 4. Responses view — admin OR public share-token holder
       if (state.surveyView === 'responses') {
+        if (state.shareToken) {
+          await loadResponsesPublic();
+          rerenderApp();
+          return;
+        }
         if (!state.isAdmin) {
           // Render a background and pop the login modal
           state.page = 'not_found';

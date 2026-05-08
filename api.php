@@ -385,36 +385,174 @@ try {
 
         case 'get_responses':
             requireAdmin();
-            $slug   = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $slug    = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $payload = buildResponsesPayload($slug, false);
+            if (!$payload) { jsonResponse(['error' => 'Survey not found'], 404); break; }
+            jsonResponse($payload);
+            break;
+
+        case 'get_responses_public':
+            $token = trim($_GET['token'] ?? '');
+            $slug  = resolveShareToken($token);
+            if (!$slug) { jsonResponse(['error' => 'Invalid or revoked share link'], 403); break; }
+            $payload = buildResponsesPayload($slug, true);
+            if (!$payload) { jsonResponse(['error' => 'Survey not found'], 404); break; }
+            jsonResponse($payload);
+            break;
+
+        case 'get_share_token':
+            requireAdmin();
+            $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            $stmt = getDB()->prepare('SELECT share_token, created_at FROM survey_share_tokens WHERE survey_slug = ?');
+            $stmt->execute([$slug]);
+            $row = $stmt->fetch();
+            jsonResponse([
+                'token'      => $row ? $row['share_token'] : null,
+                'created_at' => $row ? $row['created_at']  : null,
+                'url'        => $row ? buildShareUrl($slug, $row['share_token']) : null,
+            ]);
+            break;
+
+        case 'create_share_token':
+            requireAdmin();
+            $data = getInput();
+            $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            $token = bin2hex(random_bytes(32));
+            $db = getDB();
+            $db->prepare(
+                'INSERT INTO survey_share_tokens (survey_slug, share_token, created_by)
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE share_token = VALUES(share_token), created_by = VALUES(created_by), created_at = CURRENT_TIMESTAMP'
+            )->execute([$slug, $token, (int)$_SESSION['user_id']]);
+            jsonResponse([
+                'token' => $token,
+                'url'   => buildShareUrl($slug, $token),
+            ]);
+            break;
+
+        case 'delete_share_token':
+            requireAdmin();
+            $data = getInput();
+            $slug = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            getDB()->prepare('DELETE FROM survey_share_tokens WHERE survey_slug = ?')->execute([$slug]);
+            jsonResponse(['ok' => true]);
+            break;
+
+        case 'get_ai_summaries':
+            // Admin OR public share-token holder may read cached summaries.
+            $slug      = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $shareTok  = trim($_GET['token'] ?? '');
+            $okAccess  = isAdmin() || ($shareTok && resolveShareToken($shareTok) === $slug);
+            if (!$okAccess) { jsonResponse(['error' => 'Unauthorized'], 403); break; }
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            $stmt = getDB()->prepare(
+                'SELECT question_key, summary_md, response_count, generated_at
+                 FROM ai_summaries WHERE survey_slug = ?'
+            );
+            $stmt->execute([$slug]);
+            $out = [];
+            foreach ($stmt->fetchAll() as $row) {
+                $out[$row['question_key']] = [
+                    'summary_md'     => $row['summary_md'],
+                    'response_count' => (int)$row['response_count'],
+                    'generated_at'   => $row['generated_at'],
+                ];
+            }
+            jsonResponse($out);
+            break;
+
+        case 'generate_ai_summary':
+            $data     = getInput();
+            $slug     = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
+            $qKey     = trim($data['question_key'] ?? '');
+            $shareTok = trim($data['token'] ?? '');
+
+            // Auth: admin OR a valid share token for this slug.
+            $authorized = isAdmin() || ($shareTok !== '' && resolveShareToken($shareTok) === $slug);
+            if (!$authorized) { jsonResponse(['error' => 'Unauthorized'], 403); break; }
+
+            if (!isValidSlug($slug)) { jsonResponse(['error' => 'Invalid slug'], 400); break; }
+            if ($qKey === '' || strlen($qKey) > 120) { jsonResponse(['error' => 'Invalid question_key'], 400); break; }
+
+            // Per-session throttle: 10s between any two summaries from the same browser.
+            $now = time();
+            if (!empty($_SESSION['ai_summary_last_at']) && ($now - (int)$_SESSION['ai_summary_last_at']) < 10) {
+                jsonResponse(['error' => 'Please wait a few seconds between summaries.'], 429);
+                break;
+            }
+            // Global throttle: 30s between regenerates of the same question, across all callers.
+            $tStmt = getDB()->prepare(
+                'SELECT generated_at FROM ai_summaries WHERE survey_slug = ? AND question_key = ?'
+            );
+            $tStmt->execute([$slug, $qKey]);
+            $existing = $tStmt->fetch();
+            if ($existing && (time() - strtotime($existing['generated_at'])) < 30) {
+                jsonResponse(['error' => 'A summary for this question was just generated. Try again in a moment.'], 429);
+                break;
+            }
+
             $survey = loadSurvey($slug);
             if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
 
-            $db = getDB();
-            $sessStmt = $db->prepare(
-                'SELECT id, session_token, user_id, ip_address, current_question, completed_at, created_at
-                 FROM survey_sessions WHERE survey_slug = ? ORDER BY created_at DESC'
-            );
-            $sessStmt->execute([$slug]);
-            $rows = $sessStmt->fetchAll();
-
-            if ($rows) {
-                $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
-                $answers = $db->query(
-                    "SELECT session_id, question_key, answer_value FROM survey_answers WHERE session_id IN ($ids)"
-                )->fetchAll();
-                $answerMap = [];
-                foreach ($answers as $a) {
-                    $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
-                }
-                foreach ($rows as &$row) {
-                    $row['answers'] = $answerMap[$row['id']] ?? (object)[];
-                }
-                unset($row);
+            // Whitelist: only free-text question types may be summarised.
+            $flat = flattenQuestions(sanitizeSurveyForClient($survey)['questions']);
+            $qDef = null;
+            foreach ($flat as $q) { if ($q['key'] === $qKey) { $qDef = $q; break; } }
+            if (!$qDef) { jsonResponse(['error' => 'Question not found'], 404); break; }
+            if (!in_array($qDef['type'], ['text', 'textarea'], true)) {
+                jsonResponse(['error' => 'Only free-text questions can be summarised.'], 400);
+                break;
             }
 
+            // Pull all non-empty answers.
+            $db = getDB();
+            $stmt = $db->prepare(
+                'SELECT a.answer_value
+                 FROM survey_answers a
+                 JOIN survey_sessions s ON s.id = a.session_id
+                 WHERE s.survey_slug = ? AND a.question_key = ? AND TRIM(a.answer_value) <> ""'
+            );
+            $stmt->execute([$slug, $qKey]);
+            $answers = array_map(fn($r) => trim((string)$r['answer_value']), $stmt->fetchAll());
+            $answers = array_values(array_filter($answers, fn($s) => $s !== ''));
+            if (count($answers) < 2) {
+                jsonResponse(['error' => 'Need at least 2 responses to generate a summary.'], 400);
+                break;
+            }
+
+            $system = "You are an experienced UX researcher running an affinity-mapping exercise. Read all the survey responses provided and group them into 3–7 themes that capture the patterns. Respond in markdown with this structure:\n\n## Themes\n\nFor each theme, use a level-3 heading with a short title and an approximate count in parens, then a 1–2 sentence description of the theme, then a blockquote with one or two of the most representative verbatim quotes.\n\n## Notable outliers\n\nA short bullet list of any responses that didn't fit the main themes — keep this brief.\n\nKeep the whole summary under 500 words. Don't editorialise or invent quotes — every quoted line must appear verbatim in the input.";
+
+            $numbered = [];
+            foreach ($answers as $i => $a) {
+                $numbered[] = ($i + 1) . '. ' . $a;
+            }
+            $user = "Survey question: " . $qDef['label'] . "\n\nResponses (" . count($answers) . " total):\n\n" . implode("\n\n", $numbered);
+
+            try {
+                $summary = callClaude($system, $user);
+            } catch (Throwable $e) {
+                error_log('generate_ai_summary failed: ' . $e->getMessage());
+                jsonResponse(['error' => 'AI service unavailable. Try again shortly.'], 502);
+                break;
+            }
+
+            // generated_by = 0 indicates a share-token caller (no admin user_id).
+            $db->prepare(
+                'INSERT INTO ai_summaries (survey_slug, question_key, summary_md, response_count, generated_by)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE summary_md = VALUES(summary_md), response_count = VALUES(response_count),
+                                         generated_by = VALUES(generated_by), generated_at = CURRENT_TIMESTAMP'
+            )->execute([$slug, $qKey, $summary, count($answers), (int)($_SESSION['user_id'] ?? 0)]);
+
+            $_SESSION['ai_summary_last_at'] = $now;
+
             jsonResponse([
-                'questions' => flattenQuestions(sanitizeSurveyForClient($survey)['questions']),
-                'sessions'  => $rows,
+                'summary_md'     => $summary,
+                'response_count' => count($answers),
+                'generated_at'   => date('Y-m-d H:i:s'),
             ]);
             break;
 
