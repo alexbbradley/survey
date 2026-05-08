@@ -1480,7 +1480,7 @@
     }
 
     const colHeaders = otherQs.map(q =>
-      `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate min-w-[160px] max-w-[220px]" title="${esc(q.label)}">${esc(q.label)}</th>`
+      `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate min-w-[160px] max-w-[220px] sticky top-0 z-20 bg-[#f4f4f5]" title="${esc(q.label)}">${esc(q.label)}</th>`
     ).join('');
 
     const allChecked = sessions.length > 0 && sessions.every(s => s.session_token && state.selectedSessions.has(s.session_token));
@@ -1564,14 +1564,14 @@
           <button id="btn-delete-selected" class="${T.btn} ${T.sm} ${T.danger}">Delete selected</button>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-xl border border-[#e5e5e5]">
+      <div class="overflow-auto rounded-xl border border-[#e5e5e5] max-h-[70vh]">
         <table class="min-w-full bg-white" style="width: max-content">
           <thead class="border-b border-[#e5e5e5] bg-[#f4f4f5]">
             <tr>
-              <th class="px-3 py-2 text-center w-10 sticky left-0 z-20 bg-[#f4f4f5]">
+              <th class="px-3 py-2 text-center w-10 sticky top-0 left-0 z-30 bg-[#f4f4f5]">
                 <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
               </th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px]">
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px] sticky top-0 z-20 bg-[#f4f4f5]">
                 <button id="sort-email-btn" class="flex items-center gap-1 cursor-pointer bg-transparent border-0 text-[#6b6b6b] hover:text-[#1a1a1a] transition-colors text-xs font-medium p-0">
                   Email
                   <span class="${state.emailSort ? 'text-[#1a1a1a]' : 'text-[#cccccc]'}">${
@@ -1579,10 +1579,10 @@
                   }</span>
                 </button>
               </th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap">Status</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-44 whitespace-nowrap">Started</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32 whitespace-nowrap">IP</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap">Session</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap sticky top-0 z-20 bg-[#f4f4f5]">Status</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-44 whitespace-nowrap sticky top-0 z-20 bg-[#f4f4f5]">Started</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32 whitespace-nowrap sticky top-0 z-20 bg-[#f4f4f5]">IP</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap sticky top-0 z-20 bg-[#f4f4f5]">Session</th>
               ${colHeaders}
             </tr>
           </thead>

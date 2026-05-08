@@ -626,6 +626,9 @@ video {
 .z-20{
   z-index: 20;
 }
+.z-30{
+  z-index: 30;
+}
 .z-\[1000\]{
   z-index: 1000;
 }
@@ -741,6 +744,9 @@ video {
 }
 .h-screen{
   height: 100vh;
+}
+.max-h-\[70vh\]{
+  max-height: 70vh;
 }
 .max-h-\[90vh\]{
   max-height: 90vh;
@@ -927,9 +933,6 @@ video {
 }
 .overflow-hidden{
   overflow: hidden;
-}
-.overflow-x-auto{
-  overflow-x: auto;
 }
 .overflow-y-auto{
   overflow-y: auto;
