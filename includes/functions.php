@@ -178,7 +178,7 @@ function emailTemplate(string $heading, string $bodyHtml): string {
  * POST a system + user message to the OpenAI Chat Completions API and
  * return the assistant's text reply. Throws on transport or API errors.
  */
-function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 8000): string {
+function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 16000): string {
     if (!defined('OPENAI_API_KEY') || OPENAI_API_KEY === '') {
         throw new RuntimeException('OPENAI_API_KEY is not configured.');
     }
@@ -200,7 +200,7 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
     ];
     if ($isReasoning) {
         $payload['max_completion_tokens'] = $maxTokens;
-        $payload['reasoning_effort']      = 'low';
+        $payload['reasoning_effort']      = 'medium';
     } else {
         $payload['max_tokens'] = $maxTokens;
     }
@@ -214,7 +214,7 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
             'Authorization: Bearer ' . OPENAI_API_KEY,
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_TIMEOUT        => 90,
+        CURLOPT_TIMEOUT        => 180,
     ]);
     $body = curl_exec($ch);
     $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);

@@ -1676,9 +1676,9 @@
         try {
           const body = { slug: state.surveySlug, question_key: key };
           if (isShareView()) body.token = state.shareToken;
-          // AI summary calls can take 30–90s; give the fetch generous headroom
-          // beyond the 90s server-side curl timeout.
-          const r = await api('generate_ai_summary', 'POST', body, 100000);
+          // AI summary calls with medium reasoning can take 60–180s; give the
+          // fetch generous headroom beyond the 180s server-side curl timeout.
+          const r = await api('generate_ai_summary', 'POST', body, 200000);
           state.aiSummaries[key] = {
             summary_md:     r.summary_md,
             response_count: r.response_count,
