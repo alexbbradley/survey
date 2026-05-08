@@ -164,6 +164,7 @@
     emailSort: null,     // null | 'asc' | 'desc' — admin table sort on email column
     aiSummaries: {},     // { question_key: { summary_md, response_count, generated_at } }
     aiBusy:      {},     // { question_key: true } while a generate request is in-flight
+    aiErrors:    {},     // { question_key: errorMessage } from the most recent failed generate
     shareInfo:   null,   // { token, url, created_at } | null  (admin only)
     // UI
     saving: false,
@@ -1431,10 +1432,15 @@
       return `<button class="ai-generate-btn ${T.btn} ${T.sm} ${T.primary}" data-question-key="${esc(questionKey)}">Generate AI summary</button>`;
     })();
 
+    const errMsg = state.aiErrors[questionKey] || null;
+    const errorBlock = errMsg
+      ? `<div class="ai-summary-error mt-3 text-xs text-red bg-red/5 border border-red/30 rounded-lg px-3 py-2 break-words"><strong>Last attempt failed:</strong> ${esc(errMsg)}</div>`
+      : '';
+
     const body = cached
-      ? `<div class="ai-summary-body mt-4 text-sm text-[#1a1a1a] bg-white rounded-xl p-5 border border-[#e5e5e5]">${mdToHtml(cached.summary_md)}</div>`
+      ? `<div class="ai-summary-body mt-4 text-sm text-[#1a1a1a] bg-white rounded-xl p-5 border border-[#e5e5e5]">${mdToHtml(cached.summary_md)}</div>${errorBlock}`
       : (canCallApi
-          ? `<p class="ai-summary-empty text-xs text-[#6b6b6b] mt-3">Click <em>Generate AI summary</em> to group these responses into themes.</p>`
+          ? `<p class="ai-summary-empty text-xs text-[#6b6b6b] mt-3">Click <em>Generate AI summary</em> to group these responses into themes.</p>${errorBlock}`
           : '');
 
     if (!canCallApi && !cached) return '';
@@ -1678,7 +1684,9 @@
             response_count: r.response_count,
             generated_at:   r.generated_at,
           };
+          delete state.aiErrors[key];
         } catch (err) {
+          state.aiErrors[key] = err.message;
           toast(err.message, 'error');
         } finally {
           state.aiBusy[key] = false;

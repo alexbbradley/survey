@@ -1011,6 +1011,9 @@ video {
 .border-green\/40{
   border-color: rgb(112 191 161 / 0.4);
 }
+.border-red\/30{
+  border-color: rgb(255 109 59 / 0.3);
+}
 .border-red\/40{
   border-color: rgb(255 109 59 / 0.4);
 }
@@ -1063,6 +1066,9 @@ video {
 }
 .bg-red\/10{
   background-color: rgb(255 109 59 / 0.1);
+}
+.bg-red\/5{
+  background-color: rgb(255 109 59 / 0.05);
 }
 .bg-transparent{
   background-color: transparent;
