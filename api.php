@@ -465,6 +465,11 @@ try {
             break;
 
         case 'generate_ai_summary':
+            // Long-running: keep PHP working even if the user navigates away
+            // mid-call so the OpenAI response still gets cached to the DB.
+            ignore_user_abort(true);
+            set_time_limit(240);
+
             $data     = getInput();
             $slug     = preg_replace('/[^a-z0-9-]/', '', strtolower($data['slug'] ?? ''));
             $qKey     = trim($data['question_key'] ?? '');
