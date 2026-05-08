@@ -591,6 +591,12 @@ try {
                 $answerMap[$a['session_id']][$a['question_key']] = $a['answer_value'];
             }
 
+            // Drop partial sessions with no submitted answers (consistent with
+            // the responses page payload).
+            $rows = array_values(array_filter($rows, function ($r) use ($answerMap) {
+                return $r['completed_at'] !== null || hasAnyAnswer($answerMap[$r['id']] ?? null);
+            }));
+
             $questions = flattenQuestions(sanitizeSurveyForClient($survey)['questions']);
 
             while (ob_get_level()) ob_end_clean();

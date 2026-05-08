@@ -328,9 +328,24 @@ function flattenQuestions(array $questions): array {
 }
 
 /**
+ * True if at least one answer in the map has non-empty content.
+ * Accepts either an associative array or a stdClass cast (the empty
+ * payload returned when a session has no answers yet).
+ */
+function hasAnyAnswer($answers): bool {
+    if (!$answers) return false;
+    foreach ((array)$answers as $val) {
+        if (trim((string)$val) !== '') return true;
+    }
+    return false;
+}
+
+/**
  * Build the responses payload for a survey (questions + sessions w/ answers).
  * If $stripPII is true, removes ip_address and the full session_token from
  * each session row — used for the public share view.
+ * Partial sessions with zero submitted answers are dropped — they represent
+ * users who landed but never filled anything in.
  * Returns null if the survey can't be loaded.
  */
 function buildResponsesPayload(string $slug, bool $stripPII): ?array {
@@ -361,6 +376,11 @@ function buildResponsesPayload(string $slug, bool $stripPII): ?array {
             }
         }
         unset($row);
+
+        // Drop partial sessions with no submitted answers.
+        $rows = array_values(array_filter($rows, function ($r) {
+            return $r['completed_at'] !== null || hasAnyAnswer($r['answers']);
+        }));
     }
 
     return [
