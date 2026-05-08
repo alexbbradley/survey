@@ -1076,14 +1076,15 @@
       <div class="flex items-start gap-2 mt-3">${labels}</div>`;
   }
 
-  function renderBarCharts(questions, sessions) {
+  function renderBarCharts(questions, sessions, allQuestions) {
+    allQuestions = allQuestions || questions;
     const chartQs = questions.filter(q =>
       q.type === 'ranking' || (q.type === 'checkbox' && q.summary)
     );
     if (!chartQs.length) return '';
 
     return chartQs.map(q => {
-      const num    = getQuestionNumber(questions, q.key);
+      const num    = getQuestionNumber(allQuestions, q.key);
       const result = q.type === 'ranking' ? buildRankingChart(q, sessions) : buildCheckboxChart(q, sessions);
       if (!result) return '';
 
@@ -1128,8 +1129,8 @@
   /** Render a vertical bar chart to a Canvas (white background) and return it. */
   function renderChartCanvas(title, subtitle, data) {
     const W = 1200;
-    const padTop = 180, padBot = 100, padLeft = 80, padRight = 60;
-    const H = 670;
+    const padTop = 210, padBot = 110, padLeft = 80, padRight = 60;
+    const H = 710;
     const chartH = H - padTop - padBot;
     const chartW = W - padLeft - padRight;
 
@@ -1146,17 +1147,17 @@
     ctx.textAlign = 'left';
 
     // Title (wrapped)
-    ctx.font = '600 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.font = '600 26px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const titleLines = wrapText(ctx, title, W - padLeft - padRight);
     titleLines.slice(0, 2).forEach((line, i) => {
-      ctx.fillText(line, padLeft, 24 + i * 28);
+      ctx.fillText(line, padLeft, 24 + i * 32);
     });
 
     // Subtitle / footer note up top
     if (subtitle) {
-      ctx.font = '13px system-ui, -apple-system, sans-serif';
+      ctx.font = '16px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#444444';
-      ctx.fillText(subtitle, padLeft, 24 + Math.min(titleLines.length, 2) * 28 + 4);
+      ctx.fillText(subtitle, padLeft, 24 + Math.min(titleLines.length, 2) * 32 + 8);
       ctx.fillStyle = '#000000';
     }
 
@@ -1187,16 +1188,16 @@
       ctx.fill();
 
       // Score above bar
-      ctx.font = '600 15px system-ui, -apple-system, sans-serif';
+      ctx.font = '600 18px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#000000';
-      ctx.fillText(String(d.score), x + barW / 2, y - 6);
+      ctx.fillText(String(d.score), x + barW / 2, y - 8);
 
       // Rank number above the score (1, 2, 3, …)
-      ctx.font = '12px system-ui, -apple-system, sans-serif';
+      ctx.font = '14px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#666666';
-      ctx.fillText('#' + (i + 1), x + barW / 2, y - 24);
+      ctx.fillText('#' + (i + 1), x + barW / 2, y - 32);
 
       // Multi-line label centered horizontally under each bar. Wrap width
       // is the column width so labels never overlap their neighbours.
@@ -1204,11 +1205,11 @@
       ctx.translate(x + barW / 2, padTop + chartH + 12);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.font = '14px system-ui, -apple-system, sans-serif';
+      ctx.font = '16px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#000000';
       const wrapWidth = colW - 12;
       const maxLines  = 3;
-      const lineH     = 17;
+      const lineH     = 20;
       let lines = wrapText(ctx, d.label || '', wrapWidth);
       if (lines.length > maxLines) {
         lines = lines.slice(0, maxLines);
@@ -1271,10 +1272,73 @@
     };
   }
 
-  // ── Answer summary carousels ────────────────────────────────────────────────
+  // ── Answer summaries / per-question rendering ──────────────────────────────
   /** Get the 1-based question number within the full (flat) questions list. */
   function getQuestionNumber(questions, key) {
     return questions.findIndex(q => q.key === key) + 1;
+  }
+
+  /**
+   * Pull leading short-text questions (name/email/role-style) into a
+   * dedicated "identity" group rendered as a 3-col panel at the top.
+   * Stops at the first non-text/email question or after 3, whichever first.
+   */
+  function partitionIdentityQuestions(questions) {
+    const identity = [];
+    const rest = [];
+    for (const q of questions) {
+      const isShortText = q.type === 'text' || q.type === 'email';
+      if (rest.length === 0 && isShortText && identity.length < 3) {
+        identity.push(q);
+      } else {
+        rest.push(q);
+      }
+    }
+    return { identity, rest };
+  }
+
+  /**
+   * Render the leading identity questions as a 3-col grid at the top of
+   * the responses page — one column per field, listing every respondent's
+   * answer.
+   */
+  function renderIdentitySection(identityQs, sessions) {
+    if (!identityQs.length || !sessions.length) return '';
+    const cols = identityQs.map(q => {
+      const values = sessions
+        .map(s => (s.answers?.[q.key] ?? '').trim())
+        .filter(v => v);
+      const list = values.length
+        ? `<ul class="text-sm text-[#1a1a1a] space-y-1">${
+            values.map(v => `<li class="truncate" title="${esc(v)}">${esc(v)}</li>`).join('')
+          }</ul>`
+        : `<p class="text-sm text-[#a0a0a0]">No responses yet.</p>`;
+      return `
+        <div>
+          <h3 class="text-sm font-semibold text-[#1a1a1a] mb-2">${esc(q.label)} <span class="text-[#6b6b6b] font-normal">(${values.length})</span></h3>
+          <div class="bg-white border border-[#e5e5e5] rounded-xl p-4">${list}</div>
+        </div>`;
+    }).join('');
+    return `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">${cols}</div>`;
+  }
+
+  /**
+   * Walk the remaining questions in survey order and dispatch each through
+   * the appropriate renderer (chart for ranking/checkbox, tally bars for
+   * radio, card grid + AI summary for free text). Skips questions without
+   * a `summary` flag unless they are ranking (which always charts).
+   */
+  function renderQuestionsInOrder(qs, sessions, allQuestions) {
+    if (!sessions.length) return '';
+    return qs.map(q => {
+      if (q.type === 'ranking' || (q.type === 'checkbox' && q.summary)) {
+        return renderBarCharts([q], sessions, allQuestions);
+      }
+      if (q.summary && (q.type === 'radio' || q.type === 'textarea' || q.type === 'text' || q.type === 'email')) {
+        return renderAnswerSummaries([q], sessions, allQuestions);
+      }
+      return '';
+    }).join('');
   }
 
   /** Initial card count shown before "Show all" expands. */
@@ -1312,7 +1376,8 @@
     return out.join('').replace(/<p>/g, '<p class="my-2">');
   }
 
-  function renderAnswerSummaries(questions, sessions) {
+  function renderAnswerSummaries(questions, sessions, allQuestions) {
+    allQuestions = allQuestions || questions;
     // Ranking and checkbox questions are rendered by renderBarCharts instead.
     const summaryQs = questions.filter(q =>
       q.summary && q.type !== 'ranking' && q.type !== 'checkbox'
@@ -1320,7 +1385,7 @@
     if (!summaryQs.length || !sessions.length) return '';
 
     return summaryQs.map(q => {
-      const num = getQuestionNumber(questions, q.key);
+      const num = getQuestionNumber(allQuestions, q.key);
       // Collect non-empty answers
       const answers = sessions
         .map(s => ({ value: (s.answers?.[q.key] ?? '').trim(), completed: !!s.completed_at }))
@@ -1544,8 +1609,11 @@
             ${sessions.length - completedCount} partial
           </p>
           ${renderShareLinkPanel()}
-          ${renderAnswerSummaries(questions, sessions)}
-          ${renderBarCharts(questions, sessions)}
+          ${(() => {
+            const { identity, rest } = partitionIdentityQuestions(questions);
+            return renderIdentitySection(identity, sessions)
+                 + renderQuestionsInOrder(rest, sessions, questions);
+          })()}
           ${tableSection}
         </div>
       </div>`;
