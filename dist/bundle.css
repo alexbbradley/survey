@@ -589,6 +589,9 @@ video {
 .relative{
   position: relative;
 }
+.sticky{
+  position: sticky;
+}
 .inset-0{
   inset: 0px;
 }
@@ -619,6 +622,9 @@ video {
 }
 .z-10{
   z-index: 10;
+}
+.z-20{
+  z-index: 20;
 }
 .z-\[1000\]{
   z-index: 1000;
@@ -754,9 +760,6 @@ video {
 .w-16{
   width: 4rem;
 }
-.w-24{
-  width: 6rem;
-}
 .w-28{
   width: 7rem;
 }
@@ -769,8 +772,8 @@ video {
 .w-4{
   width: 1rem;
 }
-.w-40{
-  width: 10rem;
+.w-44{
+  width: 11rem;
 }
 .w-6{
   width: 1.5rem;
@@ -787,6 +790,12 @@ video {
 .min-w-\[160px\]{
   min-width: 160px;
 }
+.min-w-\[180px\]{
+  min-width: 180px;
+}
+.min-w-full{
+  min-width: 100%;
+}
 .max-w-2xl{
   max-width: 42rem;
 }
@@ -798,6 +807,18 @@ video {
 }
 .max-w-7xl{
   max-width: 80rem;
+}
+.max-w-\[120px\]{
+  max-width: 120px;
+}
+.max-w-\[140px\]{
+  max-width: 140px;
+}
+.max-w-\[220px\]{
+  max-width: 220px;
+}
+.max-w-\[240px\]{
+  max-width: 240px;
 }
 .max-w-\[460px\]{
   max-width: 460px;
@@ -816,9 +837,6 @@ video {
 }
 .flex-shrink-0{
   flex-shrink: 0;
-}
-.table-fixed{
-  table-layout: fixed;
 }
 .cursor-grab{
   cursor: grab;

@@ -1460,14 +1460,21 @@
     const validTokens = new Set(sessions.map(s => s.session_token).filter(Boolean));
     [...state.selectedSessions].forEach(t => { if (!validTokens.has(t)) state.selectedSessions.delete(t); });
 
-    const colHeaders = questions.map(q =>
-      `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate" title="${esc(q.label)}">${esc(q.label)}</th>`
+    // Pull the email question (if any) into a fixed early column. The
+    // remaining questions follow the IP/Session columns at the end.
+    const emailQ      = questions.find(q => q.type === 'email' || q.key === 'email');
+    const emailKey    = emailQ?.key || null;
+    const otherQs     = emailKey ? questions.filter(q => q.key !== emailKey) : questions;
+    const totalCols   = 6 + otherQs.length; // checkbox + email + status + started + ip + session + others
+
+    const colHeaders = otherQs.map(q =>
+      `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate min-w-[160px] max-w-[220px]" title="${esc(q.label)}">${esc(q.label)}</th>`
     ).join('');
 
     const allChecked = sessions.length > 0 && sessions.every(s => s.session_token && state.selectedSessions.has(s.session_token));
 
     const rows = sessions.map(s => {
-      const cells = questions.map(q => {
+      const cells = otherQs.map(q => {
         const raw = s.answers?.[q.key] ?? '';
         let display = raw;
         if (q.type === 'ranking' || q.type === 'checkbox') {
@@ -1476,41 +1483,50 @@
             if (Array.isArray(arr)) display = arr.join(q.type === 'ranking' ? ' > ' : ', ');
           } catch (_) {}
         }
-        return `<td class="px-3 py-2 text-sm text-[#1a1a1a] truncate" title="${esc(display)}">${esc(display)}</td>`;
+        return `<td class="px-3 py-2 text-sm text-[#1a1a1a] truncate min-w-[160px] max-w-[220px]" title="${esc(display)}">${esc(display)}</td>`;
       }).join('');
 
       const completed = s.completed_at
-        ? `<span class="text-green text-xs">${esc(s.completed_at)}</span>`
+        ? `<span class="text-green text-xs whitespace-nowrap">${esc(s.completed_at)}</span>`
         : `<span class="text-[#a0a0a0] text-xs">partial</span>`;
 
+      const emailValue = emailKey ? (s.answers?.[emailKey] ?? '') : '';
       const isChecked = s.session_token && state.selectedSessions.has(s.session_token);
 
       return `<tr class="border-b border-[#e5e5e5] hover:bg-[#f4f4f5] ${isChecked ? 'bg-[#f4f4f5]' : ''}">
-        <td class="px-3 py-2 text-center">
+        <td class="px-3 py-2 text-center w-10">
           <input type="checkbox" class="row-select cursor-pointer accent-green w-4 h-4"
                  data-session-token="${esc(s.session_token || '')}" ${isChecked ? 'checked' : ''}>
         </td>
-        <td class="px-3 py-2 text-xs font-mono text-[#a0a0a0] truncate">${esc((s.session_token || '').substring(0, 8))}…</td>
-        <td class="px-3 py-2 text-xs text-[#6b6b6b] whitespace-nowrap">${esc(s.created_at)}</td>
+        <td class="px-3 py-2 text-sm text-[#1a1a1a] truncate max-w-[240px]" title="${esc(emailValue)}">${esc(emailValue)}</td>
         <td class="px-3 py-2 whitespace-nowrap">${completed}</td>
-        <td class="px-3 py-2 text-xs text-[#a0a0a0] truncate">${esc(s.ip_address || '')}</td>
+        <td class="px-3 py-2 text-xs text-[#6b6b6b] whitespace-nowrap">${esc(s.created_at)}</td>
+        <td class="px-3 py-2 text-xs text-[#a0a0a0] truncate max-w-[140px]">${esc(s.ip_address || '')}</td>
+        <td class="px-3 py-2 text-xs font-mono text-[#a0a0a0] truncate max-w-[120px]">${esc((s.session_token || '').substring(0, 8))}…</td>
         ${cells}
       </tr>`;
     }).join('');
 
     const emptyState = sessions.length === 0
-      ? `<tr><td colspan="${5 + questions.length}" class="px-3 py-10 text-center text-[#a0a0a0] text-sm">No responses yet.</td></tr>`
+      ? `<tr><td colspan="${totalCols}" class="px-3 py-10 text-center text-[#a0a0a0] text-sm">No responses yet.</td></tr>`
       : '';
 
     const completedCount = sessions.filter(s => s.completed_at).length;
     const selCount = state.selectedSessions.size;
     const bulkBarHidden = selCount === 0 ? 'hidden' : '';
 
+    const csvHref = shareView
+      ? `api.php?action=export_csv&slug=${esc(state.surveySlug)}&token=${encodeURIComponent(state.shareToken)}`
+      : `api.php?action=export_csv&slug=${esc(state.surveySlug)}`;
+
     const headerActions = shareView
-      ? `<span class="text-xs text-[#6b6b6b]">Read-only shared view</span>`
+      ? `
+        <span class="text-xs text-[#6b6b6b]">Read-only shared view</span>
+        <a href="${csvHref}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
+      `
       : `
         <a href="?s=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.outlineLight}">Take survey</a>
-        <a href="api.php?action=export_csv&slug=${esc(state.surveySlug)}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
+        <a href="${csvHref}" class="${T.btn} ${T.sm} ${T.primary}">Export CSV</a>
         <button id="btn-clear" class="${T.btn} ${T.sm} ${T.danger}">Clear all responses</button>
       `;
 
@@ -1528,16 +1544,17 @@
         </div>
       </div>
       <div class="overflow-x-auto rounded-xl border border-[#e5e5e5]">
-        <table class="w-full table-fixed bg-white">
+        <table class="min-w-full bg-white" style="width: max-content">
           <thead class="border-b border-[#e5e5e5] bg-[#f4f4f5]">
             <tr>
-              <th class="px-3 py-2 text-center w-10">
+              <th class="px-3 py-2 text-center w-10 sticky left-0 bg-[#f4f4f5]">
                 <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
               </th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-24">Session</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-40 whitespace-nowrap">Started</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28">Status</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32">IP</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px]">Email</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap">Status</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-44 whitespace-nowrap">Started</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32 whitespace-nowrap">IP</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap">Session</th>
               ${colHeaders}
             </tr>
           </thead>
@@ -1548,7 +1565,7 @@
 
     return `
       <div class="min-h-screen bg-white text-[#1a1a1a]">
-        <header class="border-b border-[#e5e5e5] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+        <header class="sticky top-0 z-20 bg-white border-b border-[#e5e5e5] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div class="flex items-center gap-3">
             ${breadcrumbHome}
             <span class="font-semibold text-[#1a1a1a]">${esc(state.survey?.title || state.surveySlug)}</span>

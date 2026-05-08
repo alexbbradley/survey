@@ -557,8 +557,15 @@ try {
             break;
 
         case 'export_csv':
-            requireAdmin();
-            $slug   = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $slug      = preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['slug'] ?? ''));
+            $shareTok  = trim($_GET['token'] ?? '');
+            $isAdminU  = isAdmin();
+            $okShare   = $shareTok !== '' && resolveShareToken($shareTok) === $slug;
+            if (!$isAdminU && !$okShare) { jsonResponse(['error' => 'Unauthorized'], 403); break; }
+            // Share-token exports omit the session token and IP columns to
+            // match the data the share view shows on screen.
+            $stripPII  = !$isAdminU;
+
             $survey = loadSurvey($slug);
             if (!$survey) { jsonResponse(['error' => 'Survey not found'], 404); break; }
 
@@ -580,7 +587,6 @@ try {
             }
 
             $questions = flattenQuestions(sanitizeSurveyForClient($survey)['questions']);
-            $keys      = array_column($questions, 'key');
 
             while (ob_get_level()) ob_end_clean();
             header('Content-Type: text/csv; charset=utf-8');
@@ -591,17 +597,21 @@ try {
             fwrite($fh, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
 
             // Header row
-            $headerRow = ['Session', 'Started', 'Completed', 'IP'];
+            $headerRow = $stripPII
+                ? ['Started', 'Completed']
+                : ['Session', 'Started', 'Completed', 'IP'];
             foreach ($questions as $q) { $headerRow[] = $q['label']; }
             fputcsv($fh, $headerRow);
 
             foreach ($rows as $row) {
-                $line = [
-                    substr($row['session_token'], 0, 8),
-                    $row['created_at'],
-                    $row['completed_at'] ?? '',
-                    $row['ip_address'],
-                ];
+                $line = $stripPII
+                    ? [$row['created_at'], $row['completed_at'] ?? '']
+                    : [
+                        substr($row['session_token'], 0, 8),
+                        $row['created_at'],
+                        $row['completed_at'] ?? '',
+                        $row['ip_address'],
+                    ];
                 foreach ($questions as $qDef) {
                     $key     = $qDef['key'];
                     $val     = $answerMap[$row['id']][$key] ?? '';

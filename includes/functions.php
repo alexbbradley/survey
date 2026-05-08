@@ -184,14 +184,23 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
     }
     $model = $model ?? (defined('OPENAI_MODEL') ? OPENAI_MODEL : 'gpt-4o-mini');
 
+    // GPT-5 and o-series chat models reject `max_tokens` and require
+    // `max_completion_tokens`. Older 4-series models still use the
+    // legacy name.
+    $useCompletionTokens = (bool)preg_match('/^(gpt-5|o\d)/i', $model);
+
     $payload = [
-        'model'       => $model,
-        'max_tokens'  => $maxTokens,
-        'messages'    => [
+        'model'    => $model,
+        'messages' => [
             ['role' => 'system', 'content' => $systemPrompt],
             ['role' => 'user',   'content' => $userPrompt],
         ],
     ];
+    if ($useCompletionTokens) {
+        $payload['max_completion_tokens'] = $maxTokens;
+    } else {
+        $payload['max_tokens'] = $maxTokens;
+    }
 
     $ch = curl_init('https://api.openai.com/v1/chat/completions');
     curl_setopt_array($ch, [
