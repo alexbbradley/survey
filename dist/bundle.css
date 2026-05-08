@@ -676,6 +676,9 @@ video {
 .mt-1{
   margin-top: 0.25rem;
 }
+.mt-2{
+  margin-top: 0.5rem;
+}
 .mt-3{
   margin-top: 0.75rem;
 }
@@ -1450,6 +1453,10 @@ kbd {
 }
 .active\:cursor-grabbing:active{
   cursor: grabbing;
+}
+.group:hover .group-hover\:bg-\[\#f4f4f5\]{
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 244 245 / var(--tw-bg-opacity, 1));
 }
 @media (min-width: 640px){
 

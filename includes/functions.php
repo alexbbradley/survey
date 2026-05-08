@@ -211,7 +211,7 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
             'Authorization: Bearer ' . OPENAI_API_KEY,
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_TIMEOUT        => 90,
     ]);
     $body = curl_exec($ch);
     $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);

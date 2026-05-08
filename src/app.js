@@ -40,14 +40,14 @@
       .replace(/'/g, '&#39;');
   }
 
-  async function api(action, method, body) {
+  async function api(action, method, body, timeoutMs) {
     const opts = { method: method || 'GET', headers: {} };
     if (body) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
     const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 20000);
+    const timeoutId = setTimeout(() => ctrl.abort(), timeoutMs || 20000);
     opts.signal = ctrl.signal;
     let res;
     try {
@@ -1493,8 +1493,8 @@
       const emailValue = emailKey ? (s.answers?.[emailKey] ?? '') : '';
       const isChecked = s.session_token && state.selectedSessions.has(s.session_token);
 
-      return `<tr class="border-b border-[#e5e5e5] hover:bg-[#f4f4f5] ${isChecked ? 'bg-[#f4f4f5]' : ''}">
-        <td class="px-3 py-2 text-center w-10">
+      return `<tr class="group border-b border-[#e5e5e5] hover:bg-[#f4f4f5] ${isChecked ? 'bg-[#f4f4f5]' : ''}">
+        <td class="px-3 py-2 text-center w-10 sticky left-0 z-10 group-hover:bg-[#f4f4f5] ${isChecked ? 'bg-[#f4f4f5]' : 'bg-white'}">
           <input type="checkbox" class="row-select cursor-pointer accent-green w-4 h-4"
                  data-session-token="${esc(s.session_token || '')}" ${isChecked ? 'checked' : ''}>
         </td>
@@ -1512,6 +1512,7 @@
       : '';
 
     const completedCount = sessions.filter(s => s.completed_at).length;
+    const partialCount   = sessions.length - completedCount;
     const selCount = state.selectedSessions.size;
     const bulkBarHidden = selCount === 0 ? 'hidden' : '';
 
@@ -1536,6 +1537,14 @@
          <span class="text-[#cccccc]">/</span>`;
 
     const tableSection = shareView ? '' : `
+      <div class="flex items-center justify-between gap-3 mb-3 mt-2">
+        <h2 class="text-base font-semibold text-[#1a1a1a]">All responses</h2>
+        <div class="text-sm text-[#6b6b6b]">
+          <span class="text-green font-semibold">${completedCount}</span> submitted
+          &nbsp;·&nbsp;
+          <span class="text-[#1a1a1a] font-semibold">${partialCount}</span> partial
+        </div>
+      </div>
       <div id="bulk-actions" class="${bulkBarHidden} flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl bg-[#fafafa] border border-[#e5e5e5]">
         <span class="text-sm text-[#1a1a1a]"><span id="bulk-count">${selCount}</span> selected</span>
         <div class="flex items-center gap-2">
@@ -1547,7 +1556,7 @@
         <table class="min-w-full bg-white" style="width: max-content">
           <thead class="border-b border-[#e5e5e5] bg-[#f4f4f5]">
             <tr>
-              <th class="px-3 py-2 text-center w-10 sticky left-0 bg-[#f4f4f5]">
+              <th class="px-3 py-2 text-center w-10 sticky left-0 z-20 bg-[#f4f4f5]">
                 <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
               </th>
               <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px]">Email</th>
@@ -1563,24 +1572,22 @@
       </div>
     `;
 
+    const totalBadge = `<span class="text-xs px-2 py-1 rounded-full bg-[#f4f4f5] border border-[#e5e5e5] text-[#1a1a1a] font-semibold whitespace-nowrap">${sessions.length} response${sessions.length !== 1 ? 's' : ''}</span>`;
+
     return `
       <div class="min-h-screen bg-white text-[#1a1a1a]">
         <header class="sticky top-0 z-20 bg-white border-b border-[#e5e5e5] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
             ${breadcrumbHome}
             <span class="font-semibold text-[#1a1a1a]">${esc(state.survey?.title || state.surveySlug)}</span>
             <code class="text-xs text-[#a0a0a0]">${esc(state.surveySlug)}</code>
+            ${totalBadge}
           </div>
           <div class="flex items-center gap-2">
             ${headerActions}
           </div>
         </header>
         <div class="px-6 py-6 max-w-7xl mx-auto">
-          <p class="text-sm text-[#6b6b6b] mb-4">
-            ${sessions.length} response${sessions.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
-            ${completedCount} completed &nbsp;·&nbsp;
-            ${sessions.length - completedCount} partial
-          </p>
           ${renderShareLinkPanel()}
           ${renderQuestionsInOrder(questions, sessions, questions)}
           ${tableSection}
@@ -1644,7 +1651,9 @@
         try {
           const body = { slug: state.surveySlug, question_key: key };
           if (isShareView()) body.token = state.shareToken;
-          const r = await api('generate_ai_summary', 'POST', body);
+          // AI summary calls can take 30–90s; give the fetch generous headroom
+          // beyond the 90s server-side curl timeout.
+          const r = await api('generate_ai_summary', 'POST', body, 100000);
           state.aiSummaries[key] = {
             summary_md:     r.summary_md,
             response_count: r.response_count,
