@@ -1097,7 +1097,7 @@
       return `
         <div class="mb-6">
           <div class="flex items-start justify-between mb-3 gap-3">
-            <h3 class="text-sm font-semibold text-[#1a1a1a] flex-1">
+            <h3 class="text-base font-semibold text-[#1a1a1a] flex-1">
               <span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}
             </h3>
             <button data-chart-download="${esc(q.key)}" class="${T.btn} ${T.sm} ${T.outlineLight} flex-shrink-0">View as PNG</button>
@@ -1372,7 +1372,7 @@
 
         return `
           <div class="mb-6">
-            <h3 class="text-sm font-semibold text-[#1a1a1a] mb-3"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}</h3>
+            <h3 class="text-base font-semibold text-[#1a1a1a] mb-3"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}</h3>
             <div class="bg-white border border-[#e5e5e5] rounded-xl p-5">
               <div class="flex flex-col gap-2">${bars}</div>
               <p class="text-xs text-[#a0a0a0] mt-3">${answers.length} response${answers.length !== 1 ? 's' : ''}</p>

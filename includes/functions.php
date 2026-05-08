@@ -178,7 +178,7 @@ function emailTemplate(string $heading, string $bodyHtml): string {
  * POST a system + user message to the OpenAI Chat Completions API and
  * return the assistant's text reply. Throws on transport or API errors.
  */
-function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 1500): string {
+function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 4000): string {
     if (!defined('OPENAI_API_KEY') || OPENAI_API_KEY === '') {
         throw new RuntimeException('OPENAI_API_KEY is not configured.');
     }
@@ -186,8 +186,10 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
 
     // GPT-5 and o-series chat models reject `max_tokens` and require
     // `max_completion_tokens`. Older 4-series models still use the
-    // legacy name.
-    $useCompletionTokens = (bool)preg_match('/^(gpt-5|o\d)/i', $model);
+    // legacy name. Reasoning models also split the token budget between
+    // hidden reasoning and the visible answer — keep reasoning effort low
+    // for summarisation so the answer has room to land.
+    $isReasoning = (bool)preg_match('/^(gpt-5|o\d)/i', $model);
 
     $payload = [
         'model'    => $model,
@@ -196,8 +198,9 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
             ['role' => 'user',   'content' => $userPrompt],
         ],
     ];
-    if ($useCompletionTokens) {
+    if ($isReasoning) {
         $payload['max_completion_tokens'] = $maxTokens;
+        $payload['reasoning_effort']      = 'low';
     } else {
         $payload['max_tokens'] = $maxTokens;
     }
@@ -229,9 +232,15 @@ function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = n
         $msg = $decoded['error']['message'] ?? ('HTTP ' . $http);
         throw new RuntimeException('OpenAI API error: ' . $msg);
     }
-    $text = $decoded['choices'][0]['message']['content'] ?? '';
+    $choice = $decoded['choices'][0] ?? [];
+    $text   = $choice['message']['content'] ?? '';
     if ($text === '') {
-        throw new RuntimeException('OpenAI API returned no text content');
+        $finish = $choice['finish_reason'] ?? 'unknown';
+        $usage  = $decoded['usage'] ?? [];
+        $hint   = ($finish === 'length')
+            ? ' — output token budget exhausted (likely consumed by reasoning); try a higher max_completion_tokens or a non-reasoning model'
+            : '';
+        throw new RuntimeException('OpenAI returned no text (finish_reason: ' . $finish . ')' . $hint . ' usage=' . json_encode($usage));
     }
     return $text;
 }
