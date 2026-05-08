@@ -161,6 +161,7 @@
     surveys:      [],   // [{slug, title}] for home page
     responsesData: null, // { questions[], sessions[] }
     selectedSessions: new Set(), // tokens of sessions selected for bulk actions
+    emailSort: null,     // null | 'asc' | 'desc' — admin table sort on email column
     aiSummaries: {},     // { question_key: { summary_md, response_count, generated_at } }
     aiBusy:      {},     // { question_key: true } while a generate request is in-flight
     shareInfo:   null,   // { token, url, created_at } | null  (admin only)
@@ -1467,13 +1468,24 @@
     const otherQs     = emailKey ? questions.filter(q => q.key !== emailKey) : questions;
     const totalCols   = 6 + otherQs.length; // checkbox + email + status + started + ip + session + others
 
+    // Optional client-side sort on the email column for spotting duplicates.
+    let displaySessions = sessions;
+    if (state.emailSort && emailKey) {
+      displaySessions = [...sessions].sort((a, b) => {
+        const av = String(a.answers?.[emailKey] ?? '').trim().toLowerCase();
+        const bv = String(b.answers?.[emailKey] ?? '').trim().toLowerCase();
+        const cmp = av.localeCompare(bv);
+        return state.emailSort === 'desc' ? -cmp : cmp;
+      });
+    }
+
     const colHeaders = otherQs.map(q =>
       `<th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] truncate min-w-[160px] max-w-[220px]" title="${esc(q.label)}">${esc(q.label)}</th>`
     ).join('');
 
     const allChecked = sessions.length > 0 && sessions.every(s => s.session_token && state.selectedSessions.has(s.session_token));
 
-    const rows = sessions.map(s => {
+    const rows = displaySessions.map(s => {
       const cells = otherQs.map(q => {
         const raw = s.answers?.[q.key] ?? '';
         let display = raw;
@@ -1559,7 +1571,14 @@
               <th class="px-3 py-2 text-center w-10 sticky left-0 z-20 bg-[#f4f4f5]">
                 <input type="checkbox" id="select-all" class="cursor-pointer accent-green w-4 h-4" ${allChecked ? 'checked' : ''}>
               </th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px]">Email</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] min-w-[180px] max-w-[240px]">
+                <button id="sort-email-btn" class="flex items-center gap-1 cursor-pointer bg-transparent border-0 text-[#6b6b6b] hover:text-[#1a1a1a] transition-colors text-xs font-medium p-0">
+                  Email
+                  <span class="${state.emailSort ? 'text-[#1a1a1a]' : 'text-[#cccccc]'}">${
+                    state.emailSort === 'asc' ? '▲' : state.emailSort === 'desc' ? '▼' : '↕'
+                  }</span>
+                </button>
+              </th>
               <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-28 whitespace-nowrap">Status</th>
               <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-44 whitespace-nowrap">Started</th>
               <th class="px-3 py-2 text-left text-xs font-medium text-[#6b6b6b] w-32 whitespace-nowrap">IP</th>
@@ -1666,6 +1685,14 @@
           rerenderApp();
         }
       });
+    });
+
+    // Email column sort (admin table — cycles none → asc → desc → none)
+    document.getElementById('sort-email-btn')?.addEventListener('click', () => {
+      state.emailSort = state.emailSort === null ? 'asc'
+                      : state.emailSort === 'asc' ? 'desc'
+                      : null;
+      rerenderApp();
     });
 
     // Share-link panel (admin)

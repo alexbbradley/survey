@@ -535,7 +535,12 @@ try {
                 $summary = callOpenAI($system, $user);
             } catch (Throwable $e) {
                 error_log('generate_ai_summary failed: ' . $e->getMessage());
-                jsonResponse(['error' => 'AI service unavailable. Try again shortly.'], 502);
+                // Admins see the real upstream error to make debugging
+                // possible; share-token callers see only the generic message.
+                $msg = isAdmin()
+                    ? 'AI error: ' . $e->getMessage()
+                    : 'AI service unavailable. Try again shortly.';
+                jsonResponse(['error' => $msg], 502);
                 break;
             }
 
