@@ -1391,7 +1391,7 @@
           <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <h3 class="text-base font-semibold text-[#1a1a1a]"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)} <span class="text-[#6b6b6b]">(${total})</span></h3>
           </div>
-          ${renderAiSummaryPanel(q.key, total)}
+          ${q.type === 'textarea' ? renderAiSummaryPanel(q.key, total) : ''}
           <div class="answer-collapse relative" data-question-key="${esc(q.key)}">
             <div class="answer-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>
             ${overflow ? `
