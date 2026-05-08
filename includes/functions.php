@@ -178,7 +178,7 @@ function emailTemplate(string $heading, string $bodyHtml): string {
  * POST a system + user message to the OpenAI Chat Completions API and
  * return the assistant's text reply. Throws on transport or API errors.
  */
-function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 4000): string {
+function callOpenAI(string $systemPrompt, string $userPrompt, ?string $model = null, int $maxTokens = 8000): string {
     if (!defined('OPENAI_API_KEY') || OPENAI_API_KEY === '') {
         throw new RuntimeException('OPENAI_API_KEY is not configured.');
     }
