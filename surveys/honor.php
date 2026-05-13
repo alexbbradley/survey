@@ -6,7 +6,7 @@
  */
 return [
     'title'       => 'HONOR Website Questionnaire',
-    'description' => 'We\'re reviewing the HONOR website to understand how it should better support the brand, the bridal appointment journey, and the wider business.
+    'description' => 'We\'re auditing the HONOR website to understand how it should better support the brand, the bridal appointment journey, and the wider business.
 
 Responses will be used to identify overall themes and won\'t be attributed to individuals.
 
