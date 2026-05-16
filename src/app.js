@@ -1029,6 +1029,30 @@
     };
   }
 
+  /** Tally selections across sessions for a radio question (one pick per respondent). */
+  function buildRadioChart(q, sessions) {
+    const tally = {};
+    let responseCount = 0;
+    sessions.forEach(s => {
+      const raw = String(s.answers?.[q.key] ?? '').trim();
+      if (!raw) return;
+      responseCount++;
+      tally[raw] = (tally[raw] || 0) + 1;
+    });
+    if (!Object.keys(tally).length) return null;
+    const max = Math.max(...Object.values(tally));
+    return {
+      bars: Object.entries(tally)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, score]) => ({
+          label,
+          score,
+          pct: max > 0 ? Math.round((score / max) * 100) : 0,
+        })),
+      responseCount,
+    };
+  }
+
   /** Tally selections across sessions for a checkbox question. */
   function buildCheckboxChart(q, sessions) {
     const tally = {};
@@ -1081,18 +1105,22 @@
   function renderBarCharts(questions, sessions, allQuestions) {
     allQuestions = allQuestions || questions;
     const chartQs = questions.filter(q =>
-      q.type === 'ranking' || q.type === 'checkbox'
+      q.type === 'ranking' || q.type === 'checkbox' || q.type === 'radio'
     );
     if (!chartQs.length) return '';
 
     return chartQs.map(q => {
       const num    = getQuestionNumber(allQuestions, q.key);
-      const result = q.type === 'ranking' ? buildRankingChart(q, sessions) : buildCheckboxChart(q, sessions);
+      const result = q.type === 'ranking' ? buildRankingChart(q, sessions)
+                   : q.type === 'radio'   ? buildRadioChart(q, sessions)
+                   :                        buildCheckboxChart(q, sessions);
       if (!result) return '';
 
       const footer = q.type === 'ranking'
         ? `Borda count — ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} weighted (1st = ${q.items.length} pts, last = 1 pt)`
-        : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
+        : q.type === 'radio'
+          ? `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} · single choice`
+          : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
 
       return `
         <div class="mb-6">
@@ -1289,10 +1317,10 @@
   function renderQuestionsInOrder(qs, sessions, allQuestions) {
     if (!sessions.length) return '';
     return qs.map(q => {
-      if (q.type === 'ranking' || q.type === 'checkbox') {
+      if (q.type === 'ranking' || q.type === 'checkbox' || q.type === 'radio') {
         return renderBarCharts([q], sessions, allQuestions);
       }
-      if (q.type === 'radio' || q.type === 'textarea' || q.type === 'text' || q.type === 'email') {
+      if (q.type === 'textarea' || q.type === 'text' || q.type === 'email') {
         return renderAnswerSummaries([q], sessions, allQuestions);
       }
       return '';
@@ -1350,35 +1378,6 @@
         .filter(a => a.value);
 
       if (!answers.length) return '';
-
-      // Radio: tally with horizontal bars (light theme)
-      if (q.type === 'radio') {
-        const tally = {};
-        answers.forEach(a => { tally[a.value] = (tally[a.value] || 0) + 1; });
-        if (!Object.keys(tally).length) return '';
-        const maxCount = Math.max(...Object.values(tally));
-        const bars = Object.entries(tally)
-          .sort((a, b) => b[1] - a[1])
-          .map(([opt, count]) => `
-            <div class="flex items-center gap-3">
-              <div class="flex-1 bg-[#f4f4f5] rounded-full h-7 overflow-hidden">
-                <div class="h-full rounded-full flex items-center px-3 ${count === maxCount ? 'bg-green/40' : 'bg-[#cccccc]'}"
-                  style="width:${Math.max(Math.round((count / maxCount) * 100), 8)}%">
-                  <span class="text-xs text-[#1a1a1a] truncate">${esc(opt)}</span>
-                </div>
-              </div>
-              <span class="text-xs text-[#a0a0a0] w-6 text-right flex-shrink-0">${count}</span>
-            </div>`).join('');
-
-        return `
-          <div class="mb-6">
-            <h3 class="text-base font-semibold text-[#1a1a1a] mb-3"><span class="text-[#a0a0a0] font-normal">${num}.</span> ${esc(q.label)}</h3>
-            <div class="bg-white border border-[#e5e5e5] rounded-xl p-5">
-              <div class="flex flex-col gap-2">${bars}</div>
-              <p class="text-xs text-[#a0a0a0] mt-3">${answers.length} response${answers.length !== 1 ? 's' : ''}</p>
-            </div>
-          </div>`;
-      }
 
       // Text/textarea — responsive grid of white cards with collapsible "show all"
       const total      = answers.length;
@@ -1829,16 +1828,18 @@
         const { questions, sessions } = state.responsesData || { questions: [], sessions: [] };
         const q = questions.find(x => x.key === key);
         if (!q) return;
-        const result = q.type === 'ranking'
-          ? buildRankingChart(q, sessions)
-          : buildCheckboxChart(q, sessions);
+        const result = q.type === 'ranking' ? buildRankingChart(q, sessions)
+                     : q.type === 'radio'   ? buildRadioChart(q, sessions)
+                     :                        buildCheckboxChart(q, sessions);
         if (!result || !result.bars.length) {
           toast('No data to chart yet.', 'error');
           return;
         }
         const subtitle = q.type === 'ranking'
           ? `Borda count · ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} (1st = ${q.items.length} pts, last = 1 pt)`
-          : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
+          : q.type === 'radio'
+            ? `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} · single choice`
+            : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
         const safeSlug = (state.surveySlug || 'survey').replace(/[^a-z0-9-]+/gi, '-');
         const safeKey  = (q.key || 'chart').replace(/[^a-z0-9-]+/gi, '-');
         openChartPreview(`${safeSlug}-${safeKey}.png`, q.label, subtitle, result.bars);
