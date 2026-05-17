@@ -1084,7 +1084,7 @@
 
   /** Brand palette for chart bars (cycles by bar index). */
   const CHART_PALETTE   = ['#A4CCC4', '#B1D0A1', '#C6B239', '#665D26', '#E3903F', '#F0712E', '#D2708A', '#782047', '#6677B6'];
-  const CHART_BG_CREAM  = '#F3EBE4';
+  const CHART_BG_CREAM  = '#F9F7F4';
 
   /** Vertical bars HTML for the responses page (light theme). */
   function renderVerticalBars(data) {
