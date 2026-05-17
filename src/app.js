@@ -1082,14 +1082,18 @@
     };
   }
 
+  /** Brand palette for chart bars (cycles by bar index). */
+  const CHART_PALETTE   = ['#A4CCC4', '#B1D0A1', '#C6B239', '#665D26', '#E3903F', '#F0712E', '#D2708A', '#782047', '#6677B6'];
+  const CHART_BG_CREAM  = '#F3EBE4';
+
   /** Vertical bars HTML for the responses page (light theme). */
   function renderVerticalBars(data) {
     const cols = data.map((d, i) => `
       <div class="flex flex-col items-center gap-1 flex-1 min-w-0 h-full">
         <div class="text-xs text-[#1a1a1a] font-semibold flex-shrink-0">${d.score}</div>
         <div class="w-full flex-1 flex items-end min-h-0">
-          <div class="w-full rounded-t ${i === 0 ? 'bg-green' : 'bg-[#cccccc]'} transition-all"
-               style="height:${Math.max(d.pct, 4)}%; min-height:6px"></div>
+          <div class="w-full rounded-t transition-all"
+               style="height:${Math.max(d.pct, 4)}%; min-height:6px; background-color:${CHART_PALETTE[i % CHART_PALETTE.length]}"></div>
         </div>
       </div>`).join('');
 
@@ -1130,9 +1134,9 @@
             </h3>
             <button data-chart-download="${esc(q.key)}" class="${T.btn} ${T.sm} ${T.outlineLight} flex-shrink-0">View as PNG</button>
           </div>
-          <div class="bg-white border border-[#e5e5e5] rounded-xl p-5">
+          <div class="border border-[#e5e5e5] rounded-xl p-5" style="background-color:${CHART_BG_CREAM}">
             ${renderVerticalBars(result.bars)}
-            <p class="text-xs text-[#a0a0a0] mt-4">${footer}</p>
+            <p class="text-xs text-[#7a6f60] mt-4">${footer}</p>
           </div>
         </div>`;
     }).join('');
@@ -1169,7 +1173,7 @@
     canvas.height = H;
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = CHART_BG_CREAM;
     ctx.fillRect(0, 0, W, H);
 
     ctx.fillStyle = '#000000';
@@ -1211,7 +1215,7 @@
       const h = (d.score / max) * chartH;
       const y = padTop + chartH - h;
 
-      ctx.fillStyle = '#70BFA1';
+      ctx.fillStyle = CHART_PALETTE[i % CHART_PALETTE.length];
       const r = Math.min(barW / 2, Math.max(h, 0), 10);
       ctx.beginPath();
       ctx.roundRect(x, y, barW, h, [r, r, 0, 0]);
