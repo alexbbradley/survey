@@ -56,13 +56,12 @@ This should take less than 10 minutes.',
         ],
 
         [
-            'key'         => 'campaign_name',
-            'type'        => 'ranking',
-            'label'       => 'Which campaign name feels strongest?',
-            'description' => 'Drag to rank. 1 is the strongest option.',
-            'required'    => true,
-            'summary'     => true,
-            'items'       => [
+            'key'      => 'campaign_name',
+            'type'     => 'radio',
+            'label'    => 'Which campaign name feels strongest?',
+            'required' => true,
+            'summary'  => true,
+            'options'  => [
                 'ISDS-Free Alliance',
                 'Beyond ISDS',
                 'Beyond ISDS Alliance',
