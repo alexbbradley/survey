@@ -1,0 +1,64 @@
+<?php
+
+/**
+ * Rules to Protect — Visual Route Feedback
+ * URL: /?s=rules-to-protect-feedback
+ */
+return [
+    'title'       => 'Rules to Protect — Visual Route Feedback',
+    'description' => 'Thanks for helping shape the Rules to Protect visual identity so far. We\'ve narrowed the direction down to four visual routes.
+
+This short follow-up captures which route feels strongest, and any notes on how it could be developed further. Responses will be reviewed together — no answer will be attributed to an individual.
+
+This should take about 3 minutes.',
+    'thank_you_title' => 'Thanks for your input!',
+    'thank_you'       => 'Your feedback will directly help us choose the strongest route to take forward.',
+
+    'questions' => [
+
+        [
+            'type'  => 'group',
+            'questions' => [
+                [
+                    'key'          => 'name',
+                    'type'         => 'text',
+                    'label'        => 'Your name?',
+                    'placeholder'  => 'Jane Smith',
+                    'autocomplete' => 'name',
+                    'required'     => true,
+                ],
+                [
+                    'key'         => 'role',
+                    'type'        => 'text',
+                    'label'       => 'Your organisation?',
+                    'placeholder' => 'e.g. Friends of the Earth Europe',
+                    'required'    => true,
+                ],
+            ],
+        ],
+
+        [
+            'key'      => 'preferred_route',
+            'type'     => 'radio',
+            'label'    => 'Which visual route feels strongest for Rules to Protect?',
+            'required' => true,
+            'summary'  => true,
+            'options'  => [
+                ['label' => 'Route 1', 'image' => 'media/route-1.png'],
+                ['label' => 'Route 2', 'image' => 'media/route-2.png'],
+                ['label' => 'Route 3', 'image' => 'media/route-3.png'],
+                ['label' => 'Route 4', 'image' => 'media/route-4.png'],
+                'None of the above',
+            ],
+        ],
+
+        [
+            'key'      => 'route_notes',
+            'type'     => 'textarea',
+            'label'    => 'Any notes on how your preferred route could be improved, or on why the others didn\'t land?',
+            'required' => false,
+            'summary'  => true,
+        ],
+
+    ],
+];

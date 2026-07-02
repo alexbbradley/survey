@@ -450,24 +450,48 @@
 
   function renderRadioOptions(q, saved) {
     const name = `q_radio_${q.key}`;
-    return `<div class="radio-group flex flex-col gap-3 w-full max-w-lg" data-radio-key="${esc(q.key)}">` +
-      q.options.map(opt => {
-        const label = typeof opt === 'object' ? opt.label : opt;
-        const desc  = typeof opt === 'object' ? opt.description : '';
-        const value = label;
-        const checked = saved === value;
-        return `<label class="flex items-center gap-4 px-5 py-4 rounded-xl border ${checked ? 'border-green bg-green/10' : 'border-[#383838] bg-[#222222]'} cursor-pointer hover:border-green/60 transition-colors">
+    const hasImages = q.options.some(opt => typeof opt === 'object' && opt.image);
+
+    const renderCard = (opt) => {
+      const label = typeof opt === 'object' ? opt.label : opt;
+      const desc  = typeof opt === 'object' ? opt.description : '';
+      const image = typeof opt === 'object' ? opt.image : '';
+      const value = label;
+      const checked = saved === value;
+      const stateCls = checked ? 'border-green bg-green/10' : 'border-[#383838] bg-[#222222]';
+      const indicator = `<span class="radio-indicator w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green' : 'border-[#484848]'}">${checked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : ''}</span>`;
+
+      if (image) {
+        return `<label class="flex flex-col gap-3 p-3 rounded-xl border ${stateCls} cursor-pointer hover:border-green/60 transition-colors">
           <input type="radio" name="${name}" value="${esc(value)}" class="sr-only" ${checked ? 'checked' : ''}>
-          <span class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-green' : 'border-[#484848]'}">
-            ${checked ? '<span class="w-3 h-3 rounded-full bg-green"></span>' : ''}
-          </span>
-          <div class="flex flex-col">
+          <div class="aspect-square w-full rounded-lg overflow-hidden bg-[#F9F7F4]">
+            <img src="${esc(image)}" alt="${esc(label)}" class="w-full h-full object-cover">
+          </div>
+          <div class="flex items-center gap-3">
+            ${indicator}
             <span class="text-[#fffbf5] text-[16px]">${esc(label)}</span>
-            ${desc ? `<span class="text-[#909090] text-sm mt-0.5">${esc(desc)}</span>` : ''}
           </div>
         </label>`;
-      }).join('') +
-    `</div>`;
+      }
+
+      // Text-only option — in an image grid, span full width so it sits neatly
+      // below the image cards; in a plain list, render as a normal row card.
+      const spanCls = hasImages ? 'col-span-full flex items-center gap-4 px-5 py-4' : 'flex items-center gap-4 px-5 py-4';
+      return `<label class="${spanCls} rounded-xl border ${stateCls} cursor-pointer hover:border-green/60 transition-colors">
+        <input type="radio" name="${name}" value="${esc(value)}" class="sr-only" ${checked ? 'checked' : ''}>
+        ${indicator}
+        <div class="flex flex-col">
+          <span class="text-[#fffbf5] text-[16px]">${esc(label)}</span>
+          ${desc ? `<span class="text-[#909090] text-sm mt-0.5">${esc(desc)}</span>` : ''}
+        </div>
+      </label>`;
+    };
+
+    const containerCls = hasImages
+      ? 'radio-group grid grid-cols-1 sm:grid-cols-2 gap-4 w-full'
+      : 'radio-group flex flex-col gap-3 w-full max-w-lg';
+
+    return `<div class="${containerCls}" data-radio-key="${esc(q.key)}">${q.options.map(renderCard).join('')}</div>`;
   }
 
   function renderCheckboxOptions(q, saved, opts) {
@@ -642,7 +666,7 @@
     if (!container) return;
     container.querySelectorAll('label').forEach(label => {
       const input    = label.querySelector('input[type="radio"]');
-      const circle   = label.querySelector('span:nth-child(2)');
+      const circle   = label.querySelector('.radio-indicator');
       const isChecked = input && input.value === selectedValue;
 
       // Toggle border/bg on label
