@@ -308,13 +308,14 @@ function sanitizeQuestion(array $q): array {
         'label'    => (string)($q['label'] ?? ''),
         'required' => !empty($q['required']),
     ];
-    if (isset($q['options']))     $out['options']     = array_values((array)$q['options']);
-    if (isset($q['items']))       $out['items']       = array_values((array)$q['items']);
-    if (isset($q['max']))         $out['max']         = (int)$q['max'];
-    if (isset($q['placeholder']))  $out['placeholder']  = (string)$q['placeholder'];
-    if (isset($q['description'])) $out['description'] = (string)$q['description'];
-    if (isset($q['autocomplete'])) $out['autocomplete'] = (string)$q['autocomplete'];
-    if (!empty($q['summary']))    $out['summary']     = true;
+    if (isset($q['options']))       $out['options']        = array_values((array)$q['options']);
+    if (isset($q['items']))         $out['items']          = array_values((array)$q['items']);
+    if (isset($q['max']))           $out['max']            = (int)$q['max'];
+    if (isset($q['placeholder']))   $out['placeholder']    = (string)$q['placeholder'];
+    if (isset($q['description']))   $out['description']    = (string)$q['description'];
+    if (isset($q['autocomplete']))  $out['autocomplete']   = (string)$q['autocomplete'];
+    if (isset($q['bailout_option']))$out['bailout_option'] = (string)$q['bailout_option'];
+    if (!empty($q['summary']))      $out['summary']        = true;
     return $out;
 }
 

@@ -724,6 +724,9 @@ video {
 .aspect-square{
   aspect-ratio: 1 / 1;
 }
+.h-14{
+  height: 3.5rem;
+}
 .h-16{
   height: 4rem;
 }
@@ -771,6 +774,9 @@ video {
 }
 .w-10{
   width: 2.5rem;
+}
+.w-14{
+  width: 3.5rem;
 }
 .w-16{
   width: 4rem;
@@ -1201,6 +1207,9 @@ video {
 .pt-36{
   padding-top: 9rem;
 }
+.pt-4{
+  padding-top: 1rem;
+}
 .pt-6{
   padding-top: 1.5rem;
 }
@@ -1226,6 +1235,9 @@ video {
 }
 .text-\[11px\]{
   font-size: 11px;
+}
+.text-\[15px\]{
+  font-size: 15px;
 }
 .text-\[16px\]{
   font-size: 16px;

@@ -38,16 +38,17 @@ This should take about 3 minutes.',
         ],
 
         [
-            'key'      => 'preferred_route',
-            'type'     => 'radio',
-            'label'    => 'Which visual route feels strongest for Rules to Protect?',
-            'required' => true,
-            'summary'  => true,
-            'options'  => [
+            'key'            => 'preferred_route',
+            'type'           => 'ranking',
+            'label'          => 'Rank the three visual routes for Rules to Protect.',
+            'description'    => 'Drag to rank. 1 is your strongest preference. Or, if none feel right, tick the box below the list.',
+            'required'       => true,
+            'summary'        => true,
+            'bailout_option' => 'None of the above',
+            'items'          => [
                 ['label' => 'Route 1', 'image' => 'media/route-1.png'],
                 ['label' => 'Route 2', 'image' => 'media/route-2.png'],
                 ['label' => 'Route 3', 'image' => 'media/route-3.png'],
-                'None of the above',
             ],
         ],
 

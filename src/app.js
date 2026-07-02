@@ -528,24 +528,58 @@
     return arr;
   }
 
+  /** Ranking item may be a plain string or {label, image}; return the label. */
+  function rankLabelOf(item) {
+    return (item && typeof item === 'object') ? String(item.label ?? '') : String(item);
+  }
+
   function renderRankingWidget(q, saved) {
+    const labelMap = new Map();
+    q.items.forEach(item => labelMap.set(rankLabelOf(item), item));
+
+    let parsed = null;
+    try { parsed = JSON.parse(saved); } catch (_) {}
+    const bailoutSelected = !!(q.bailout_option && Array.isArray(parsed) && parsed.length === 1 && parsed[0] === q.bailout_option);
+
     let items;
-    try { items = JSON.parse(saved); } catch (_) { items = null; }
-    const touched = Array.isArray(items) && items.length === q.items.length;
-    if (!touched) {
+    const touched = !bailoutSelected && Array.isArray(parsed) && parsed.length === q.items.length;
+    if (touched) {
+      // Rehydrate the saved order back into the original item objects
+      items = parsed.map(label => labelMap.get(label)).filter(Boolean);
+      if (items.length !== q.items.length) items = shuffle([...q.items]);
+    } else {
       items = shuffle([...q.items]);
     }
 
-    const listItems = items.map((item, i) => `
-      <li data-rank-item="${esc(item)}"
-          draggable="true"
-          class="flex items-center gap-3 px-4 py-3 bg-[#222222] border border-[#383838] rounded-xl mb-2 cursor-grab active:cursor-grabbing select-none transition-colors hover:border-[#484848]">
+    const listItems = items.map((item, i) => {
+      const label = rankLabelOf(item);
+      const image = (item && typeof item === 'object') ? item.image : '';
+      const thumb = image
+        ? `<span class="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-[#F9F7F4]"><img src="${esc(image)}" alt="" class="w-full h-full object-cover"></span>`
+        : '';
+      return `
+      <li data-rank-item="${esc(label)}"
+          draggable="${bailoutSelected ? 'false' : 'true'}"
+          class="flex items-center gap-3 px-4 py-3 bg-[#222222] border border-[#383838] rounded-xl mb-2 cursor-grab active:cursor-grabbing select-none transition-colors hover:border-[#484848] ${bailoutSelected ? 'opacity-40 pointer-events-none' : ''}">
         <span class="text-[#484848] text-xl leading-none flex-shrink-0">⠿</span>
-        <span class="flex-1 text-[#fffbf5] text-[16px]">${esc(item)}</span>
-        <span class="text-xs text-[#fffbf5] flex-shrink-0 rank-num">${touched ? i + 1 : ''}</span>
-      </li>`).join('');
+        ${thumb}
+        <span class="flex-1 text-[#fffbf5] text-[16px]">${esc(label)}</span>
+        <span class="text-xs text-[#fffbf5] flex-shrink-0 rank-num">${(touched && !bailoutSelected) ? i + 1 : ''}</span>
+      </li>`;
+    }).join('');
 
-    return `<ul class="rank-list w-full max-w-lg" data-rank-key="${esc(q.key)}">${listItems}</ul>`;
+    const bailout = q.bailout_option ? `
+      <div class="mt-5 pt-4 border-t border-[#383838] w-full max-w-lg">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" class="rank-bailout sr-only" data-bailout-key="${esc(q.key)}" data-bailout-value="${esc(q.bailout_option)}" ${bailoutSelected ? 'checked' : ''}>
+          <span class="rank-bailout-box w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 ${bailoutSelected ? 'border-green bg-green' : 'border-[#484848]'}">
+            ${bailoutSelected ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+          </span>
+          <span class="text-[#c0c0c0] text-[15px]">${esc(q.bailout_option)}</span>
+        </label>
+      </div>` : '';
+
+    return `<ul class="rank-list w-full max-w-lg" data-rank-key="${esc(q.key)}" data-bailout-active="${bailoutSelected ? '1' : '0'}">${listItems}</ul>${bailout}`;
   }
 
   function attachSurveyEvents() {
@@ -900,6 +934,36 @@
     const list = document.querySelector(`[data-rank-key="${q.key}"]`);
     if (!list) return;
 
+    // Bailout checkbox toggle (optional "None of the above" escape hatch).
+    if (q.bailout_option) {
+      const cb = document.querySelector(`.rank-bailout[data-bailout-key="${q.key}"]`);
+      const box = cb ? cb.closest('label').querySelector('.rank-bailout-box') : null;
+      if (cb) {
+        cb.addEventListener('change', () => {
+          const active = cb.checked;
+          list.setAttribute('data-bailout-active', active ? '1' : '0');
+          list.querySelectorAll('[data-rank-item]').forEach(li => {
+            li.classList.toggle('opacity-40', active);
+            li.classList.toggle('pointer-events-none', active);
+            li.setAttribute('draggable', active ? 'false' : 'true');
+            if (active) {
+              const num = li.querySelector('.rank-num');
+              if (num) num.textContent = '';
+            }
+          });
+          if (box) {
+            box.classList.toggle('border-green', active);
+            box.classList.toggle('bg-green', active);
+            box.classList.toggle('border-[#484848]', !active);
+            box.innerHTML = active
+              ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+              : '';
+          }
+          state.answers[q.key] = active ? JSON.stringify([q.bailout_option]) : '';
+        });
+      }
+    }
+
     let dragSrc = null;
 
     // ── Mouse / desktop drag ──
@@ -988,8 +1052,14 @@
   }
 
   function getRankingValue(key) {
-    const container = key ? document.querySelector(`[data-rank-key="${key}"]`) : document;
-    const items = [...(container || document).querySelectorAll('[data-rank-item]')];
+    const container = key ? document.querySelector(`[data-rank-key="${key}"]`) : document.querySelector('.rank-list');
+    if (!container) return '';
+    // Bailout selected — the state.answers value was set by the checkbox handler
+    // and is the source of truth (the drag list still holds real items visually).
+    if (container.getAttribute && container.getAttribute('data-bailout-active') === '1') {
+      return state.answers[key] || '';
+    }
+    const items = [...container.querySelectorAll('[data-rank-item]')];
     if (!items.length) return '';
     return JSON.stringify(items.map(el => el.dataset.rankItem));
   }
@@ -1024,23 +1094,30 @@
    * Returns sorted array of { label, score, pct }.
    */
   function buildRankingChart(q, sessions) {
-    const validAnswers = sessions
-      .map(s => { try { return JSON.parse(s.answers?.[q.key] || ''); } catch (_) { return null; } })
-      .filter(a => Array.isArray(a) && a.length === q.items.length);
+    const bailoutLabel = q.bailout_option || null;
+    const itemLabels   = q.items.map(rankLabelOf);
+    const n            = itemLabels.length;
 
-    if (!validAnswers.length) return null;
+    const parsed = sessions.map(s => {
+      try { return JSON.parse(s.answers?.[q.key] || ''); } catch (_) { return null; }
+    });
+    const bailoutCount = bailoutLabel
+      ? parsed.filter(a => Array.isArray(a) && a.length === 1 && a[0] === bailoutLabel).length
+      : 0;
+    const validAnswers = parsed.filter(a => Array.isArray(a) && a.length === n);
 
-    const n = q.items.length;
+    if (!validAnswers.length && !bailoutCount) return null;
+
     const scores = {};
-    q.items.forEach(item => scores[item] = 0);
+    itemLabels.forEach(l => scores[l] = 0);
 
     validAnswers.forEach(ranking => {
-      ranking.forEach((item, i) => {
-        if (scores[item] !== undefined) scores[item] += (n - i);
+      ranking.forEach((label, i) => {
+        if (scores[label] !== undefined) scores[label] += (n - i);
       });
     });
 
-    const maxScore = Math.max(...Object.values(scores));
+    const maxScore = Math.max(...Object.values(scores), 1);
     return {
       bars: Object.entries(scores)
         .sort((a, b) => b[1] - a[1])
@@ -1050,6 +1127,8 @@
           pct: maxScore > 0 ? Math.round((score / maxScore) * 100) : 0,
         })),
       responseCount: validAnswers.length,
+      bailoutCount,
+      bailoutLabel,
     };
   }
 
@@ -1144,8 +1223,11 @@
                    :                        buildCheckboxChart(q, sessions);
       if (!result) return '';
 
+      const bailoutSuffix = (q.type === 'ranking' && result.bailoutCount)
+        ? ` · ${result.bailoutCount} chose "${esc(result.bailoutLabel)}"`
+        : '';
       const footer = q.type === 'ranking'
-        ? `Borda count — ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} weighted (1st = ${q.items.length} pts, last = 1 pt)`
+        ? `Borda count — ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} weighted${bailoutSuffix} (1st = ${q.items.length} pts, last = 1 pt)`
         : q.type === 'radio'
           ? `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} · single choice`
           : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
@@ -1863,8 +1945,11 @@
           toast('No data to chart yet.', 'error');
           return;
         }
+        const bailoutSuffix = (q.type === 'ranking' && result.bailoutCount)
+          ? ` · ${result.bailoutCount} chose "${result.bailoutLabel}"`
+          : '';
         const subtitle = q.type === 'ranking'
-          ? `Borda count · ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} (1st = ${q.items.length} pts, last = 1 pt)`
+          ? `Borda count · ${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${bailoutSuffix} (1st = ${q.items.length} pts, last = 1 pt)`
           : q.type === 'radio'
             ? `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''} · single choice`
             : `${result.responseCount} response${result.responseCount !== 1 ? 's' : ''}${q.max ? ` · up to ${q.max} selections each` : ''}`;
