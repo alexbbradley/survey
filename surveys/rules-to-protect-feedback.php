@@ -53,11 +53,12 @@ This should take about 3 minutes.',
         ],
 
         [
-            'key'      => 'route_notes',
-            'type'     => 'textarea',
-            'label'    => 'Any notes on how your preferred route could be improved, or on why the others didn\'t land?',
-            'required' => false,
-            'summary'  => true,
+            'key'         => 'route_notes',
+            'type'        => 'textarea',
+            'label'       => 'Any notes on how your preferred route could be improved, why none of the routes worked for you, or any other feedback you\'d like to share?',
+            'description' => 'Where you\'re talking about specific elements, please reference page numbers from the presentation.',
+            'required'    => false,
+            'summary'     => true,
         ],
 
     ],
