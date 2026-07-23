@@ -1345,11 +1345,11 @@
       ctx.translate(x + barW / 2, padTop + chartH + 12);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.font = '16px system-ui, -apple-system, sans-serif';
+      ctx.font = '13px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#000000';
-      const wrapWidth = colW - 12;
-      const maxLines  = 3;
-      const lineH     = 20;
+      const wrapWidth = colW - 8;
+      const maxLines  = 4;
+      const lineH     = 16;
       let lines = wrapText(ctx, d.label || '', wrapWidth);
       if (lines.length > maxLines) {
         lines = lines.slice(0, maxLines);
