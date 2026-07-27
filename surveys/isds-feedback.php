@@ -53,7 +53,7 @@ This should take about 5 minutes.',
                 ['label' => 'Turn the page', 'image' => 'media/isds/isds-3.png'],
                 ['label' => 'Arrows', 'image' => 'media/isds/isds-4.png'],
                 ['label' => 'Character', 'image' => 'media/isds/isds-5.png'],
-                ['label' => 'Free fromt he know', 'image' => 'media/isds/isds-6.png'],
+                ['label' => 'Free from the knot', 'image' => 'media/isds/isds-6.png'],
             ],
         ],
 
