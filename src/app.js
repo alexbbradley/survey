@@ -40,6 +40,21 @@
       .replace(/'/g, '&#39;');
   }
 
+  /**
+   * Escape text, then turn links into clickable anchors. Supports markdown
+   * links [label](url) and bare http(s) URLs. Runs on already-escaped text,
+   * so URLs may contain &amp; (valid in an href, renders correctly).
+   */
+  function linkify(s) {
+    const a = (href, label) =>
+      `<a href="${href}" target="_blank" rel="noopener noreferrer" class="text-[#fffbf5] underline underline-offset-2 hover:text-white">${label}</a>`;
+    return esc(s)
+      // Markdown links: [label](url)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => a(url, label))
+      // Bare URLs not already inside an href="..."
+      .replace(/(^|[^"'>])(https?:\/\/[^\s<]+)/g, (_, pre, url) => pre + a(url, url));
+  }
+
   async function api(action, method, body, timeoutMs) {
     const opts = { method: method || 'GET', headers: {} };
     if (body) {
@@ -318,7 +333,7 @@
     // Intro page
     if (state.currentQuestion === -1) {
       const desc = state.survey.description || '';
-      const paragraphs = desc.split(/\n\n+/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${esc(p.trim())}</p>`).join('');
+      const paragraphs = desc.split(/\n\n+/).map(p => `<p class="text-[#c0c0c0] text-base leading-relaxed">${linkify(p.trim())}</p>`).join('');
       return `
         <div class="relative min-h-screen bg-[#1a1a1a]">
           <div class="flex flex-col items-start justify-center min-h-screen px-8 py-16 max-w-2xl mx-auto w-full">

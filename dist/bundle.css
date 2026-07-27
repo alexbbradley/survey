@@ -1351,6 +1351,9 @@ video {
 .underline{
   text-decoration-line: underline;
 }
+.underline-offset-2{
+  text-underline-offset: 2px;
+}
 .accent-green{
   accent-color: #70BFA1;
 }
@@ -1477,6 +1480,10 @@ kbd {
 .hover\:text-\[\#fffbf5\]:hover{
   --tw-text-opacity: 1;
   color: rgb(255 251 245 / var(--tw-text-opacity, 1));
+}
+.hover\:text-white:hover{
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
 }
 .focus\:border-green:focus{
   --tw-border-opacity: 1;
